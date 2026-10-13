@@ -11,6 +11,28 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 > migradas para a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo
 > completo está em [RELEASING.md](RELEASING.md).
 
+## [1.7.4] - 2026-10-13
+
+### Corrigido
+
+- **Validação de login não aceita mais cookie antigo como sessão autenticada
+  (`libs/ui/login.js`):** o login agora é confirmado por sinais fortes —
+  `login_aliyunid_ticket`, rotação do `xman_us_t` ou retorno `SUCCESS` do endpoint
+  `loginByPwd`. Antes, o `xman_us_t` antigo (que sobrevive à expiração da sessão) fazia o
+  app salvar a sessão como autenticada mesmo com o login rejeitado pelo AliExpress — falso
+  positivo identificado na investigação do bloqueio RGV587.
+- **Rejeição por controle de risco (RGV587/TMD) vira desafio anti-bot
+  (`libs/ui/login.js`):** quando a resposta do `loginByPwd` traz
+  `FAIL_SYS_USER_VALIDATE`/`RGV587`, o login é abortado imediatamente com
+  `isCaptchaChallenge` — o `collect.js` registra o cooldown pós-desafio e evita repetir
+  tentativas que escalariam o bloqueio de risco.
+
+### Testes
+
+- Novos testes em `tests/login_reauth.test.js`: classificação do `ret` (RGV587/sucesso),
+  decisão de autenticação (xman antigo não conta), falha por cookie antigo e aborto por
+  RGV587; suíte em **453/453**; lint/format limpos.
+
 ## [1.7.3] - 2026-10-06
 
 ### Corrigido

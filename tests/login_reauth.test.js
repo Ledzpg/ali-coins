@@ -31,8 +31,9 @@ function makeElement(calls, label) {
 /**
  * Cria uma Page falsa com os campos do fluxo de login (usuário/senha/Sign in).
  */
-function makePage({ withUsername = false, withPassword = true } = {}) {
+function makePage({ withUsername = false, withPassword = true, loginResponse = null } = {}) {
   const calls = [];
+  const listeners = { response: [] };
   const elements = {
     username: makeElement(calls, 'username'),
     password: makeElement(calls, 'password'),
@@ -40,6 +41,12 @@ function makePage({ withUsername = false, withPassword = true } = {}) {
   };
   return {
     calls,
+    on(event, fn) {
+      (listeners[event] = listeners[event] || []).push(fn);
+    },
+    off(event, fn) {
+      listeners[event] = (listeners[event] || []).filter((h) => h !== fn);
+    },
     async waitForSelector(selector) {
       const s = String(selector);
       if (s.includes('type="password"')) {
@@ -66,6 +73,14 @@ function makePage({ withUsername = false, withPassword = true } = {}) {
     async waitForTimeout() {},
     async evaluate() {
       calls.push(['evaluate']);
+      if (loginResponse) {
+        const res = {
+          url: () => 'https://login.aliexpress.com/user/buyer/login/loginByPwd',
+          headers: () => ({ 'content-type': 'application/json' }),
+          json: async () => loginResponse
+        };
+        for (const h of listeners.response.slice()) await h(res);
+      }
     },
     frames() {
       return [];
@@ -78,7 +93,10 @@ function makePage({ withUsername = false, withPassword = true } = {}) {
 }
 
 function makeContext() {
-  const cookies = [{ name: 'xman_us_t', value: 'auth-token' }];
+  const cookies = [
+    { name: 'xman_us_t', value: 'auth-token' },
+    { name: 'login_aliyunid_ticket', value: 'ticket-value' }
+  ];
   return {
     async cookies() {
       return [...cookies];
@@ -239,4 +257,133 @@ test('libs/ui/login.js - sem campo de usuário nem senha mantém o erro original
       ),
     /Campo de identificador de usuário/
   );
+});
+
+test('libs/ui/login.js - classifyLoginRet identifica risco (RGV587) e sucesso', () => {
+  const { classifyLoginRet } = require('../libs/ui/login');
+
+  const risco = classifyLoginRet(['FAIL_SYS_USER_VALIDATE', 'RGV587_ERROR::SM::tente mais tarde']);
+  assert.strictEqual(risco.risk, true);
+  assert.strictEqual(risco.success, false);
+
+  const sucesso = classifyLoginRet(['SUCCESS::SUCCESS']);
+  assert.strictEqual(sucesso.success, true);
+  assert.strictEqual(sucesso.risk, false);
+
+  assert.strictEqual(classifyLoginRet([]).success, false);
+  assert.strictEqual(classifyLoginRet(undefined).risk, false);
+  assert.strictEqual(classifyLoginRet('RGV587_ERROR::SM').risk, true);
+});
+
+test('libs/ui/login.js - decideLoginSuccess não aceita xman_us_t antigo sem rotação', () => {
+  const { decideLoginSuccess } = require('../libs/ui/login');
+
+  assert.strictEqual(decideLoginSuccess({ hasTicket: true }), true, 'ticket forte autentica');
+  assert.strictEqual(
+    decideLoginSuccess({ xmanRotated: true }),
+    true,
+    'cookie rotacionado autentica'
+  );
+  assert.strictEqual(
+    decideLoginSuccess({ responseSuccess: true }),
+    true,
+    'resposta SUCCESS autentica'
+  );
+  assert.strictEqual(decideLoginSuccess({}), false, 'sem sinais fortes não autentica');
+  assert.strictEqual(
+    decideLoginSuccess({ responseRisk: true, hasTicket: true }),
+    false,
+    'risco tem prioridade sobre qualquer cookie'
+  );
+});
+
+test('libs/ui/login.js - xman_us_t antigo sem ticket falha como desafio e não salva sessão', async () => {
+  const realFilesSnapshot = snapshotRealFiles();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ali-coins-stale-cookie-'));
+  const prevOut = process.env.PW_OUTPUT_DIR;
+  process.env.PW_OUTPUT_DIR = tmp;
+  try {
+    const page = makePage({ withUsername: false, withPassword: true });
+    const context = {
+      async cookies() {
+        return [{ name: 'xman_us_t', value: 'antigo' }];
+      },
+      async storageState() {
+        return { cookies: [], origins: [] };
+      }
+    };
+
+    await assert.rejects(
+      () =>
+        performMobileLogin(
+          page,
+          context,
+          { SELECTOR_TIMEOUT: 50 },
+          {
+            account: { user: 'x@example.com', password: 'pw' },
+            baseDir: tmp,
+            sessionPath: path.join(tmp, 'session_x.json'),
+            sessionMetaPath: path.join(tmp, 'session_meta_x.json')
+          }
+        ),
+      (err) => {
+        assert.strictEqual(err.isCaptchaChallenge, true);
+        return true;
+      }
+    );
+    assert.ok(!fs.existsSync(path.join(tmp, 'session_x.json')), 'não deve salvar sessão');
+  } finally {
+    if (prevOut === undefined) delete process.env.PW_OUTPUT_DIR;
+    else process.env.PW_OUTPUT_DIR = prevOut;
+    fs.rmSync(tmp, { recursive: true, force: true });
+    assertRealFilesUntouched(realFilesSnapshot);
+  }
+});
+
+test('libs/ui/login.js - rejeição RGV587 aborta com isCaptchaChallenge', async () => {
+  const realFilesSnapshot = snapshotRealFiles();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ali-coins-rgv587-'));
+  const prevOut = process.env.PW_OUTPUT_DIR;
+  process.env.PW_OUTPUT_DIR = tmp;
+  try {
+    const page = makePage({
+      withUsername: false,
+      withPassword: true,
+      loginResponse: { ret: ['FAIL_SYS_USER_VALIDATE', 'RGV587_ERROR::SM::tente mais tarde'] }
+    });
+    const context = {
+      async cookies() {
+        return [{ name: 'xman_us_t', value: 'antigo' }];
+      },
+      async storageState() {
+        return { cookies: [], origins: [] };
+      }
+    };
+
+    await assert.rejects(
+      () =>
+        performMobileLogin(
+          page,
+          context,
+          { SELECTOR_TIMEOUT: 50 },
+          {
+            account: { user: 'x@example.com', password: 'pw' },
+            baseDir: tmp,
+            sessionPath: path.join(tmp, 'session_x.json'),
+            sessionMetaPath: path.join(tmp, 'session_meta_x.json')
+          }
+        ),
+      (err) => {
+        assert.strictEqual(err.isCaptchaChallenge, true);
+        assert.match(err.message, /risco|RGV587/i);
+        return true;
+      }
+    );
+    assert.ok(!fs.existsSync(path.join(tmp, 'session_x.json')), 'não deve salvar sessão');
+  } finally {
+    if (prevOut === undefined) delete process.env.PW_OUTPUT_DIR;
+    else process.env.PW_OUTPUT_DIR = prevOut;
+    fs.rmSync(tmp, { recursive: true, force: true });
+    assertRealFilesUntouched(realFilesSnapshot);
+  }
 });

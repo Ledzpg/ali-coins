@@ -6,6 +6,87 @@ const { readMasked2FACode, TwoFactorRequiredNonInteractive } = require('../../se
 const { maskUser } = require('../../config');
 const logger = require('../../logger');
 
+// Endpoint do login por senha (o /report e o /punish do anti-bot ficam de fora).
+const LOGIN_RESPONSE_URL_RE = /\/user\/buyer\/login\/loginByPwd(?:$|\?)/i;
+
+// Códigos de rejeição por controle de risco do AliExpress (RGV587/TMD).
+const RISK_RET_RE = /RGV587|FAIL_SYS_USER_VALIDATE|FAIL_SYS_TRAFFIC_LIMIT|FAIL_SYS_ILLEGAL_ACCESS/i;
+
+/**
+ * Lê o valor de um cookie pelo nome (string vazia quando ausente).
+ * @param {Array<{name: string, value: string}>} cookies
+ * @param {string} name
+ * @returns {string}
+ */
+function readCookie(cookies, name) {
+  const found = (Array.isArray(cookies) ? cookies : []).find((c) => c && c.name === name);
+  return found && found.value ? String(found.value) : '';
+}
+
+/**
+ * Classifica o campo `ret` da resposta do loginByPwd.
+ * @param {string|string[]|null|undefined} ret
+ * @returns {{risk: boolean, success: boolean, items: string[]}}
+ */
+function classifyLoginRet(ret) {
+  const items = (Array.isArray(ret) ? ret : ret === undefined || ret === null ? [] : [ret]).map(
+    (x) => String(x)
+  );
+  const joined = items.join(' ');
+  const risk = RISK_RET_RE.test(joined);
+  const success = !risk && items.some((s) => /^SUCCESS::/i.test(s.trim()));
+  return { risk, success, items };
+}
+
+/**
+ * Decide se o login pode ser considerado autenticado.
+ * Sinais fortes: ticket `login_aliyunid_ticket`, rotação do `xman_us_t` ou `SUCCESS` na
+ * resposta. O `xman_us_t` antigo e inalterado NÃO conta (falso positivo histórico).
+ * @param {{hasTicket?: boolean, xmanRotated?: boolean, responseSuccess?: boolean, responseRisk?: boolean}} [params]
+ * @returns {boolean}
+ */
+function decideLoginSuccess({
+  hasTicket = false,
+  xmanRotated = false,
+  responseSuccess = false,
+  responseRisk = false
+} = {}) {
+  if (responseRisk === true) return false;
+  return hasTicket === true || xmanRotated === true || responseSuccess === true;
+}
+
+/**
+ * Captura a resposta do endpoint de login por senha durante a submissão.
+ * @param {import('playwright').Page} page
+ * @returns {{response: object|null, detach: () => void}}
+ */
+function attachLoginResponseCapture(page) {
+  const state = { response: null };
+  const handler = async (response) => {
+    try {
+      if (!response || typeof response.url !== 'function') return;
+      if (!LOGIN_RESPONSE_URL_RE.test(String(response.url()))) return;
+      const headers = typeof response.headers === 'function' ? response.headers() : {};
+      if (headers && headers['content-type'] && !/json/i.test(String(headers['content-type']))) {
+        return;
+      }
+      const body = await response.json();
+      if (body && typeof body === 'object') state.response = body;
+    } catch {
+      // Resposta ilegível: mantém o último estado capturado.
+    }
+  };
+  if (page && typeof page.on === 'function') page.on('response', handler);
+  return {
+    get response() {
+      return state.response;
+    },
+    detach() {
+      if (page && typeof page.off === 'function') page.off('response', handler);
+    }
+  };
+}
+
 /**
  * Retorna o ElementHandle de um seletor quando ele está VISÍVEL dentro do timeout.
  * Nunca lança: ausência/erro → null.
@@ -99,7 +180,43 @@ async function performMobileLogin(page, context, config, options = {}) {
     );
   }
 
+  let capture = null;
+  let xmanBefore = '';
+
+  const loginVerdictFromCapture = () => {
+    if (!capture || !capture.response) return null;
+    const resp = capture.response;
+    return classifyLoginRet(resp.ret !== undefined ? resp.ret : resp.data && resp.data.ret);
+  };
+
+  const throwRiskRejection = async (verdict) => {
+    if (capture) capture.detach();
+    const errScreenshot = await saveFailureScreenshot(page, 'login_risco');
+    logger.error(
+      {
+        user: maskUser(username),
+        ret: verdict.items.join(' ').slice(0, 200),
+        screenshot: errScreenshot
+      },
+      'Login rejeitado pelo controle de risco do AliExpress (RGV587/FAIL_SYS_USER_VALIDATE).'
+    );
+    const riskErr = new Error(
+      'Login rejeitado pelo controle de risco do AliExpress (verificação anti-bot RGV587).'
+    );
+    riskErr.isCaptchaChallenge = true;
+    throw riskErr;
+  };
+
   if (passwordInput) {
+    // Captura a resposta do loginByPwd e o xman_us_t anterior para validar a autenticação
+    // por sinais fortes (evita aceitar cookie antigo como sessão autenticada).
+    capture = attachLoginResponseCapture(page);
+    try {
+      xmanBefore = readCookie(await context.cookies(), 'xman_us_t');
+    } catch {
+      xmanBefore = '';
+    }
+
     // No modo somente-senha o captcha pode estar visível junto do prompt antes do envio.
     if (!loginInput) await trySolveSlider(page);
     await passwordInput.fill(password);
@@ -120,6 +237,13 @@ async function performMobileLogin(page, context, config, options = {}) {
     await page.waitForTimeout(1000);
 
     await trySolveSlider(page);
+
+    // Rejeição por controle de risco: o loginByPwd respondeu 200 com FAIL_SYS_USER_VALIDATE
+    // e nenhum cookie novo será emitido — aborta antes de qualquer validação de cookie.
+    const verdictNow = loginVerdictFromCapture();
+    if (verdictNow && verdictNow.risk) {
+      await throwRiskRejection(verdictNow);
+    }
   }
 
   // Desafio de código 2FA. Exige que o input esteja VISÍVEL: seletores por nome/classe
@@ -150,24 +274,35 @@ async function performMobileLogin(page, context, config, options = {}) {
     }
   }
 
-  // Validação de cookies
-  let cookies = await context.cookies();
-  let hasAuthCookie = cookies.some(
-    (c) => (c.name === 'xman_us_t' || c.name === 'login_aliyunid_ticket') && Boolean(c.value)
-  );
-
-  if (!hasAuthCookie) {
-    for (let waitSec = 0; waitSec < 5; waitSec++) {
-      await page.waitForTimeout(1000);
-      cookies = await context.cookies();
-      hasAuthCookie = cookies.some(
-        (c) => (c.name === 'xman_us_t' || c.name === 'login_aliyunid_ticket') && Boolean(c.value)
-      );
-      if (hasAuthCookie) break;
+  // Validação de autenticação por sinais fortes: ticket `login_aliyunid_ticket`, rotação
+  // do `xman_us_t` ou resposta SUCCESS do loginByPwd. O `xman_us_t` antigo e inalterado
+  // (que sobrevive à expiração da sessão) NÃO conta sozinho — antes gerava falso positivo.
+  let authenticated = false;
+  let verdict = loginVerdictFromCapture();
+  for (let waitSec = 0; waitSec < 6; waitSec++) {
+    if (verdict && verdict.risk) {
+      await throwRiskRejection(verdict);
     }
+    let cookies = [];
+    try {
+      cookies = await context.cookies();
+    } catch {
+      cookies = [];
+    }
+    const hasTicket = Boolean(readCookie(cookies, 'login_aliyunid_ticket'));
+    const xmanAfter = readCookie(cookies, 'xman_us_t');
+    authenticated = decideLoginSuccess({
+      hasTicket,
+      xmanRotated: Boolean(xmanAfter) && xmanAfter !== xmanBefore,
+      responseSuccess: Boolean(verdict && verdict.success)
+    });
+    if (authenticated) break;
+    if (waitSec < 5) await page.waitForTimeout(1000);
+    verdict = loginVerdictFromCapture();
   }
+  if (capture) capture.detach();
 
-  if (!hasAuthCookie) {
+  if (!authenticated) {
     const errScreenshot = await saveFailureScreenshot(page, 'login_failed');
     logger.error(
       { user: maskUser(username), screenshot: errScreenshot },
@@ -192,5 +327,7 @@ async function performMobileLogin(page, context, config, options = {}) {
 module.exports = {
   performMobileLogin,
   visibleElement,
+  classifyLoginRet,
+  decideLoginSuccess,
   TwoFactorRequiredNonInteractive
 };
