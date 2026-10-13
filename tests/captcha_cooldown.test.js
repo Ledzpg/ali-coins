@@ -84,6 +84,47 @@ test('libs/session.js - recordCaptchaChallenge + getCaptchaCooldown (meta da con
   }
 });
 
+test('libs/session.js - cooldown de risco RGV587 usa 48h sobre o padrão', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ali-coins-risk-cd-'));
+  try {
+    const sessionPath = path.join(tmp, 'session_x.json');
+    const metaPath = path.join(tmp, 'session_meta_x.json');
+    const opts = { baseDir: tmp, sessionPath, sessionMetaPath: metaPath };
+
+    const at = new Date('2026-10-13T12:00:00Z');
+    const meta = await recordCaptchaChallenge(opts, at, 48);
+    assert.strictEqual(meta.captchaCooldownHours, 48, 'horas custom gravadas no meta');
+    assert.strictEqual(meta.captchaRiskControl, true, 'registro marcado como risco');
+
+    const now = new Date('2026-10-14T11:00:00Z'); // 23h depois: além do padrão de 12h
+    const cd = await getCaptchaCooldown(opts, 12, now);
+    assert.strictEqual(cd.active, true, '48h deve sobrepor o padrão de 12h');
+    assert.strictEqual(cd.hours, 48, 'janela efetiva é 48h');
+    assert.strictEqual(cd.riskControl, true, 'cooldown sinaliza risco');
+    assert.strictEqual(cd.until, new Date('2026-10-15T12:00:00Z').toISOString());
+
+    const after = new Date('2026-10-15T13:00:00Z');
+    const expired = await getCaptchaCooldown(opts, 12, after);
+    assert.strictEqual(expired.active, false, 'expira após as 48h');
+
+    await clearCaptchaChallenge(opts);
+    const clearedMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    assert.strictEqual(clearedMeta.captchaCooldownHours, undefined);
+    assert.strictEqual(clearedMeta.captchaRiskControl, undefined);
+    const cleared = await getCaptchaCooldown(opts, 12, now);
+    assert.strictEqual(cleared.active, false);
+    assert.strictEqual(cleared.riskControl, false);
+
+    // Registro sem horas custom → volta ao padrão (12h) e sem marcação de risco
+    await recordCaptchaChallenge(opts, at);
+    const def = await getCaptchaCooldown(opts, 12, new Date('2026-10-13T18:00:00Z'));
+    assert.strictEqual(def.hours, 12);
+    assert.strictEqual(def.riskControl, false);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('libs/notify.js - evento captcha_cooldown_released avisa que o login será retomado', () => {
   const msg = buildMessage({
     event: 'captcha_cooldown_released',
@@ -243,6 +284,57 @@ test('libs/notify.js - evento captcha_required tem mensagem dedicada com ação'
   assert.ok(multi.includes('a***@example.com'));
   assert.ok(multi.includes('b***@example.com'));
   assert.ok(multi.includes('❌ Falha'));
+});
+
+test('libs/notify.js - evento risk_blocked avisa bloqueio por bot, tempo restante e coleta manual', () => {
+  const until = new Date(Date.now() + 47 * 3600 * 1000).toISOString();
+  const msg = buildMessage({
+    event: 'risk_blocked',
+    hostname: 'test-host',
+    report: { type: 'unified_report', user: 'x***@example.com' },
+    error: {
+      isCaptchaChallenge: true,
+      isCaptchaCooldown: true,
+      isRiskControl: true,
+      cooldownHours: 48,
+      cooldownUntil: until
+    }
+  });
+  assert.ok(msg.includes('bloqueou a conta por suspeita de uso de bot'), 'avisa o bloqueio');
+  assert.ok(msg.includes('RGV587'), 'cita o código do bloqueio');
+  assert.ok(msg.includes('48h'), 'informa o cooldown de 48h');
+  assert.ok(msg.includes('Tempo restante'), 'informa quanto falta do cooldown');
+  assert.ok(msg.includes('coleta manual'), 'lembra a coleta manual');
+  assert.ok(msg.includes('x***@example.com'), 'identifica a conta');
+
+  // Multi-conta: lista as contas afetadas pelo bloqueio
+  const multi = buildMessage({
+    event: 'risk_blocked',
+    hostname: 'test-host',
+    report: {
+      type: 'multi_account_report',
+      accounts: [
+        {
+          user: 'a***@example.com',
+          error: 'Login rejeitado pelo controle de risco',
+          riskControl: true,
+          riskCooldownHours: 48,
+          riskCooldownUntil: until
+        },
+        {
+          user: 'b***@example.com',
+          error: 'Login rejeitado pelo controle de risco',
+          riskControl: true,
+          riskCooldownHours: 48,
+          riskCooldownUntil: until
+        }
+      ],
+      meta: { totalAccounts: 2, successfulAccounts: 0 }
+    }
+  });
+  assert.ok(multi.includes('a***@example.com'));
+  assert.ok(multi.includes('b***@example.com'));
+  assert.ok(multi.includes('Tempo restante'));
 });
 
 test('libs/session.js - login novo (freshLogin) zera o cooldown pós-captcha', async () => {

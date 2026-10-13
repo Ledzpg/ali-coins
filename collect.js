@@ -373,6 +373,11 @@ async function runCheckin(options = {}) {
           );
           cooldownErr.isCaptchaChallenge = true;
           cooldownErr.isCaptchaCooldown = true;
+          cooldownErr.isRiskControl = captchaCooldown.riskControl === true;
+          if (cooldownErr.isRiskControl) {
+            cooldownErr.cooldownHours = captchaCooldown.hours;
+            cooldownErr.cooldownUntil = captchaCooldown.until;
+          }
           throw cooldownErr;
         }
 
@@ -386,8 +391,18 @@ async function runCheckin(options = {}) {
         } catch (loginErr) {
           // Desafio anti-bot (captcha): registra o instante para o cooldown das próximas
           // execuções (não re-registra quando a falha É o próprio cooldown).
+          // RGV587 usa cooldown customizado de 48h gravado no meta da conta.
           if (loginErr.isCaptchaChallenge && !loginErr.isCaptchaCooldown) {
-            await recordCaptchaChallenge(sessionOpts).catch(() => {});
+            await recordCaptchaChallenge(
+              sessionOpts,
+              new Date(),
+              loginErr.captchaCooldownHours || null
+            ).catch(() => {});
+            if (loginErr.isRiskControl) {
+              const hours = loginErr.captchaCooldownHours || config.CAPTCHA_COOLDOWN_HOURS;
+              loginErr.cooldownHours = hours;
+              loginErr.cooldownUntil = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+            }
           }
           if (isImportedSession) {
             logger.error(

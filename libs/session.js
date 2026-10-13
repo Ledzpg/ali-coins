@@ -667,11 +667,18 @@ function isCaptchaCooldownActive(lastCaptchaAt, hours, now = new Date()) {
 /**
  * Registra um desafio anti-bot (captcha) no meta da conta (`lastCaptchaAt`), preservando
  * os demais campos. Usado pelo cooldown que evita novas tentativas de login.
+ * `cooldownHours` (opcional) grava uma janela customizada — ex.: 48h no bloqueio de risco
+ * RGV587 — que sobrepõe o padrão (CAPTCHA_COOLDOWN_HOURS) na leitura.
  * @param {object} [options={}] Opções de caminho de sessão
  * @param {Date} [when=new Date()]
+ * @param {number|null} [cooldownHours=null]
  * @returns {Promise<object|null>} Meta atualizado ou null em falha
  */
-async function recordCaptchaChallengeUnlocked(options = {}, when = new Date()) {
+async function recordCaptchaChallengeUnlocked(
+  options = {},
+  when = new Date(),
+  cooldownHours = null
+) {
   const { mPath } = resolveSessionPaths(options);
   try {
     let meta = {};
@@ -679,6 +686,15 @@ async function recordCaptchaChallengeUnlocked(options = {}, when = new Date()) {
       meta = JSON.parse(await fs.promises.readFile(mPath, 'utf-8')) || {};
     }
     meta.lastCaptchaAt = when.toISOString();
+    // Cooldown customizado (RGV587 = 48h) sobrepõe o padrão na leitura; sem horas
+    // customizadas, limpa as marcações para voltar ao comportamento padrão.
+    if (Number.isFinite(cooldownHours) && cooldownHours > 0) {
+      meta.captchaCooldownHours = cooldownHours;
+      meta.captchaRiskControl = true;
+    } else {
+      delete meta.captchaCooldownHours;
+      delete meta.captchaRiskControl;
+    }
     // Preserva a identificação da conta no meta (ex.: após a limpeza da sessão, que
     // remove o meta e deixaria só o marcador do captcha).
     if (!meta.user && options.account && options.account.user) {
@@ -696,26 +712,34 @@ async function recordCaptchaChallengeUnlocked(options = {}, when = new Date()) {
 /**
  * Lê o cooldown pós-captcha da conta.
  * @param {object} [options={}] Opções de caminho de sessão
- * @param {number} [hours=12]
+ * @param {number} [hours=12] Janela padrão (usada quando o meta não tem horas customizadas)
  * @param {Date} [now=new Date()]
- * @returns {{active: boolean, hours: number, lastCaptchaAt: string|null, until: string|null}}
+ * @returns {{active: boolean, hours: number, lastCaptchaAt: string|null, until: string|null, riskControl: boolean}}
  */
 function getCaptchaCooldownUnlocked(options = {}, hours = 12, now = new Date()) {
   const { mPath } = resolveSessionPaths(options);
   let lastCaptchaAt = null;
+  let customHours = null;
+  let riskControl = false;
   try {
     if (fs.existsSync(mPath)) {
       const meta = JSON.parse(fs.readFileSync(mPath, 'utf-8'));
       if (meta && typeof meta.lastCaptchaAt === 'string') lastCaptchaAt = meta.lastCaptchaAt;
+      if (meta && Number.isFinite(meta.captchaCooldownHours) && meta.captchaCooldownHours > 0) {
+        customHours = meta.captchaCooldownHours;
+      }
+      if (meta && meta.captchaRiskControl === true) riskControl = true;
     }
   } catch {
     // Meta ilegível: sem cooldown (o login segue o fluxo normal)
   }
-  const active = isCaptchaCooldownActive(lastCaptchaAt, hours, now);
+  // Cooldown customizado (ex.: 48h do RGV587) sobrepõe o padrão configurado.
+  const effectiveHours = customHours || hours;
+  const active = isCaptchaCooldownActive(lastCaptchaAt, effectiveHours, now);
   const until = active
-    ? new Date(new Date(lastCaptchaAt).getTime() + hours * 60 * 60 * 1000).toISOString()
+    ? new Date(new Date(lastCaptchaAt).getTime() + effectiveHours * 60 * 60 * 1000).toISOString()
     : null;
-  return { active, hours, lastCaptchaAt, until };
+  return { active, hours: effectiveHours, lastCaptchaAt, until, riskControl };
 }
 
 /**
@@ -729,8 +753,16 @@ async function clearCaptchaChallengeUnlocked(options = {}) {
   try {
     if (!fs.existsSync(mPath)) return null;
     const meta = JSON.parse(await fs.promises.readFile(mPath, 'utf-8')) || {};
-    if (meta.lastCaptchaAt === undefined) return meta;
+    if (
+      meta.lastCaptchaAt === undefined &&
+      meta.captchaCooldownHours === undefined &&
+      meta.captchaRiskControl === undefined
+    ) {
+      return meta;
+    }
     delete meta.lastCaptchaAt;
+    delete meta.captchaCooldownHours;
+    delete meta.captchaRiskControl;
     await safeWriteFile(mPath, JSON.stringify(meta, null, 2), 'utf-8', { durable: false });
     safeChmod600(mPath);
     return meta;
@@ -1177,9 +1209,9 @@ function updateSessionStreak(streakDays, options = {}) {
   return withSessionLock(sPath, () => updateSessionStreakUnlocked(streakDays, options));
 }
 
-function recordCaptchaChallenge(options = {}, when = new Date()) {
+function recordCaptchaChallenge(options = {}, when = new Date(), cooldownHours = null) {
   const { sPath } = resolveSessionPaths(options);
-  return withSessionLock(sPath, () => recordCaptchaChallengeUnlocked(options, when));
+  return withSessionLock(sPath, () => recordCaptchaChallengeUnlocked(options, when, cooldownHours));
 }
 
 function getCaptchaCooldown(options = {}, hours = 12, now = new Date()) {

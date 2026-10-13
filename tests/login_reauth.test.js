@@ -376,6 +376,8 @@ test('libs/ui/login.js - rejeição RGV587 aborta com isCaptchaChallenge', async
       (err) => {
         assert.strictEqual(err.isCaptchaChallenge, true);
         assert.match(err.message, /risco|RGV587/i);
+        assert.strictEqual(err.isRiskControl, true, 'erro deve sinalizar bloqueio de risco');
+        assert.strictEqual(err.captchaCooldownHours, 48, 'cooldown de risco é 48h');
         return true;
       }
     );

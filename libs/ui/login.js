@@ -12,6 +12,9 @@ const LOGIN_RESPONSE_URL_RE = /\/user\/buyer\/login\/loginByPwd(?:$|\?)/i;
 // Códigos de rejeição por controle de risco do AliExpress (RGV587/TMD).
 const RISK_RET_RE = /RGV587|FAIL_SYS_USER_VALIDATE|FAIL_SYS_TRAFFIC_LIMIT|FAIL_SYS_ILLEGAL_ACCESS/i;
 
+// Bloqueio de risco (RGV587): cooldown longo (48h) para o flag do AliExpress expirar.
+const RISK_CONTROL_COOLDOWN_HOURS = 48;
+
 /**
  * Lê o valor de um cookie pelo nome (string vazia quando ausente).
  * @param {Array<{name: string, value: string}>} cookies
@@ -204,6 +207,8 @@ async function performMobileLogin(page, context, config, options = {}) {
       'Login rejeitado pelo controle de risco do AliExpress (verificação anti-bot RGV587).'
     );
     riskErr.isCaptchaChallenge = true;
+    riskErr.isRiskControl = true;
+    riskErr.captchaCooldownHours = RISK_CONTROL_COOLDOWN_HOURS;
     throw riskErr;
   };
 

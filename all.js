@@ -340,12 +340,19 @@ async function main() {
         );
         await sendHeartbeat('fail', { config, error: err });
         try {
-          // Dedupe: bloqueios repetidos pelo cooldown já foram notificados na 1ª ocorrência.
-          if (!(err && err.isCaptchaCooldown)) {
+          // Dedupe: bloqueios repetidos pelo cooldown já foram notificados na 1ª ocorrência —
+          // EXCETO bloqueio de risco (RGV587), que notifica a cada run para lembrar a coleta
+          // manual enquanto a pausa estiver ativa.
+          if (!(err && err.isCaptchaCooldown && !err.isRiskControl)) {
             await sendTelegram({
               config,
               chatId: account?.telegramChatId,
-              event: shouldNotifyCaptchaFailure(err) ? 'captcha_required' : 'failure',
+              event:
+                err && err.isRiskControl
+                  ? 'risk_blocked'
+                  : shouldNotifyCaptchaFailure(err)
+                    ? 'captcha_required'
+                    : 'failure',
               error: err
             });
           }
@@ -527,6 +534,8 @@ async function main() {
       let anyAccount2FARequired = false;
       let anyAccountCaptchaRequired = false;
       let anyAccountCaptchaFirstTime = false;
+      let anyAccountRiskControl = false;
+      let firstRiskControlError = null;
       // Distingue "todas as contas com lock ativo" (exit 3) de falha genérica de lock (exit 1)
       let lockActiveCount = 0;
       let nonLockFailureCount = 0;
@@ -627,6 +636,9 @@ async function main() {
         let accIs2FARequired = false;
         let accIsCaptchaRequired = false;
         let accIsCaptchaCooldown = false;
+        let accIsRiskControl = false;
+        let accRiskCooldownHours = null;
+        let accRiskCooldownUntil = null;
         let accStreakBroken = false;
         let pendingBackoffMs = 0;
 
@@ -739,6 +751,13 @@ async function main() {
             anyAccountCaptchaRequired = true;
             accIsCaptchaCooldown = Boolean(accErr.isCaptchaCooldown);
             if (!accIsCaptchaCooldown) anyAccountCaptchaFirstTime = true;
+            if (accErr.isRiskControl) {
+              accIsRiskControl = true;
+              anyAccountRiskControl = true;
+              if (!firstRiskControlError) firstRiskControlError = accErr;
+              accRiskCooldownHours = accErr.cooldownHours || null;
+              accRiskCooldownUntil = accErr.cooldownUntil || null;
+            }
             logger.error(
               { account: account.maskedUser },
               '[Anti-bot] Captcha/desafio de segurança no login; novas tentativas ficam pausadas pelo cooldown configurado.'
@@ -812,7 +831,11 @@ async function main() {
           config.TELEGRAM_CHAT_ID,
           { perAccountEnabled: config.TELEGRAM_PER_ACCOUNT === true }
         );
-        if (account.telegramChatId && !skipAccountNotify && !accIsCaptchaCooldown) {
+        if (
+          account.telegramChatId &&
+          !skipAccountNotify &&
+          (!accIsCaptchaCooldown || accIsRiskControl)
+        ) {
           try {
             const accPayload = buildUnifiedReportPayload(accCheckin, accTasks, {
               user: account.maskedUser,
@@ -833,16 +856,18 @@ async function main() {
               ? '2fa_required'
               : accStreakBroken
                 ? 'streak_break'
-                : accIsCaptchaRequired
-                  ? 'captcha_required'
-                  : accError
-                    ? 'failure'
-                    : (accCheckin &&
-                          (!accCheckin.alreadyCollected ||
-                            accCheckin.checkinCoinsFromLedger === true)) ||
-                        (accTasks && accTasks.totalActions > 0)
-                      ? 'success'
-                      : 'already_collected';
+                : accIsRiskControl
+                  ? 'risk_blocked'
+                  : accIsCaptchaRequired
+                    ? 'captcha_required'
+                    : accError
+                      ? 'failure'
+                      : (accCheckin &&
+                            (!accCheckin.alreadyCollected ||
+                              accCheckin.checkinCoinsFromLedger === true)) ||
+                          (accTasks && accTasks.totalActions > 0)
+                        ? 'success'
+                        : 'already_collected';
             const msSinceLastNotify = Date.now() - lastNotifyAt;
             if (lastNotifyAt && msSinceLastNotify < NOTIFY_MIN_SPACING_MS) {
               await new Promise((resolve) =>
@@ -909,6 +934,9 @@ async function main() {
           isImportedSessionExpired: accImportedExpired,
           is2FARequired: accIs2FARequired,
           streakBroken: accStreakBroken,
+          riskControl: accIsRiskControl,
+          riskCooldownHours: accRiskCooldownHours,
+          riskCooldownUntil: accRiskCooldownUntil,
           startTime: accTiming.startTime,
           endTime: accTiming.endTime,
           duration: accTiming.duration,
@@ -956,6 +984,7 @@ async function main() {
       if (allAccountsLocked) multiEvent = 'lock_active';
       else if (anyAccountStreakBroken) multiEvent = 'streak_break';
       else if (anyAccount2FARequired && !anyAccountSuccess) multiEvent = '2fa_required';
+      else if (anyAccountRiskControl && !anyAccountSuccess) multiEvent = 'risk_blocked';
       else if (anyAccountCaptchaRequired && !anyAccountSuccess) multiEvent = 'captcha_required';
       else if (!anyAccountSuccess || anyAccountFailed) multiEvent = 'failure';
       else if (!anyAccountHadNewAction) multiEvent = 'already_collected';
@@ -975,7 +1004,12 @@ async function main() {
         })
       ) {
         try {
-          await sendTelegram({ config, report: multiPayload, event: multiEvent });
+          await sendTelegram({
+            config,
+            report: multiPayload,
+            event: multiEvent,
+            error: multiEvent === 'risk_blocked' ? firstRiskControlError : undefined
+          });
           lastNotifyAt = Date.now();
         } catch (tgErr) {
           logger.warn({ err: tgErr.message }, 'Falha ao enviar notificação Telegram consolidada.');

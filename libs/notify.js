@@ -441,7 +441,7 @@ function buildNextAccountLine(report) {
  * Constrói mensagem formatada em HTML para o Telegram a partir do relatório e evento
  * @param {object} params
  * @param {object} [params.report] Objeto de relatório (--json) de libs/report.js
- * @param {'success'|'already_collected'|'failure'|'lock_active'|'dry_run'|'manual_test'|'streak_break'|'2fa_required'} [params.event='success']
+ * @param {'success'|'already_collected'|'failure'|'lock_active'|'dry_run'|'manual_test'|'streak_break'|'2fa_required'|'captcha_required'|'captcha_cooldown_released'|'risk_blocked'} [params.event='success']
  * @param {Error|object|string} [params.error]
  * @param {string} [params.customMessage]
  * @param {string} [params.hostname]
@@ -508,6 +508,54 @@ function buildMessage({
       event === 'captcha_required')
   ) {
     return buildMultiAccountMessage({ report, event, error, safeHost, now });
+  }
+
+  // Bloqueio de risco do AliExpress (RGV587/TMD): avisa que a conta foi bloqueada por
+  // suspeita de uso de bot, mostra o tempo restante do cooldown e recomenda a coleta manual.
+  if (event === 'risk_blocked') {
+    const riskAccounts =
+      report && Array.isArray(report.accounts)
+        ? report.accounts.filter((acc) => acc && acc.riskControl === true)
+        : [];
+    const userDisplay = resolveUser(report);
+
+    const untilCandidates = [];
+    if (error && error.cooldownUntil) untilCandidates.push(new Date(error.cooldownUntil));
+    for (const acc of riskAccounts) {
+      if (acc.riskCooldownUntil) untilCandidates.push(new Date(acc.riskCooldownUntil));
+    }
+    const validUntil = untilCandidates.filter((d) => !isNaN(d.getTime()));
+    const until = validUntil.length
+      ? new Date(Math.max(...validUntil.map((d) => d.getTime())))
+      : null;
+    const remainingMs = until ? until.getTime() - Date.now() : null;
+
+    const hours =
+      (error && error.cooldownHours) ||
+      (riskAccounts.find((acc) => acc && acc.riskCooldownHours) || {}).riskCooldownHours ||
+      48;
+
+    const contasLine = riskAccounts.length
+      ? `👤 <b>Contas:</b> ${riskAccounts.map((acc) => `<code>${escapeHtml(acc.user)}</code>`).join(', ')}`
+      : userDisplay
+        ? `👤 <b>Conta:</b> <code>${escapeHtml(userDisplay)}</code>`
+        : null;
+
+    return [
+      `🚫 ali-coins — ${now}`,
+      '🚫 <b>AliExpress bloqueou a conta por suspeita de uso de bot (RGV587)</b>',
+      contasLine,
+      `🖥️ <b>Host:</b> <code>${safeHost}</code>`,
+      '',
+      `⏳ <b>Login suspenso por ${hours}h</b> (cooldown anti-bot ativo).`,
+      remainingMs !== null && remainingMs > 0
+        ? `⏱️ <b>Tempo restante:</b> ${formatDuration(remainingMs)}${until ? ` (libera em ${formatDateTime(until)})` : ''}`
+        : null,
+      '',
+      '💡 <b>Ação:</b> faça a <b>coleta manual</b> das moedas no app/site do AliExpress enquanto o cooldown estiver ativo. Nenhuma tentativa de login será feita até a liberação.'
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   // Desafio anti-bot (captcha) no login: mensagem dedicada com a ação recomendada.

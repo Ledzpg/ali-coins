@@ -26,12 +26,25 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   `FAIL_SYS_USER_VALIDATE`/`RGV587`, o login é abortado imediatamente com
   `isCaptchaChallenge` — o `collect.js` registra o cooldown pós-desafio e evita repetir
   tentativas que escalariam o bloqueio de risco.
+- **Cooldown de 48h no bloqueio de risco RGV587 (`libs/session.js`, `collect.js`):** o
+  registro do desafio grava horas customizadas no meta da conta
+  (`captchaCooldownHours=48` + `captchaRiskControl`), que sobrepõem o padrão
+  `CAPTCHA_COOLDOWN_HOURS` (12h) na leitura — o login fica suspenso por 48h para o flag do
+  AliExpress expirar, sem novas tentativas na conta.
+- **Notificação `risk_blocked` no Telegram (`libs/notify.js`, `all.js`, `collect.js`):**
+  avisa que o AliExpress bloqueou a conta por suspeita de uso de bot (RGV587), informa o
+  tempo restante do cooldown (com horário de liberação) e lembra de fazer a **coleta
+  manual** das moedas enquanto a pausa estiver ativa. Diferente do captcha comum, o bloqueio
+  de risco notifica também nas execuções em que o login é pulado pelo cooldown (antes
+  silenciadas).
 
 ### Testes
 
-- Novos testes em `tests/login_reauth.test.js`: classificação do `ret` (RGV587/sucesso),
-  decisão de autenticação (xman antigo não conta), falha por cookie antigo e aborto por
-  RGV587; suíte em **453/453**; lint/format limpos.
+- Novos testes em `tests/login_reauth.test.js` e `tests/captcha_cooldown.test.js`:
+  classificação do `ret` (RGV587/sucesso), decisão de autenticação (xman antigo não conta),
+  aborto por RGV587 com cooldown de 48h, leitura/limpeza das horas customizadas no meta e
+  mensagem `risk_blocked` (tempo restante + coleta manual); suíte em **455/455**;
+  lint/format limpos.
 
 ## [1.7.3] - 2026-10-06
 
