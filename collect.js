@@ -45,7 +45,12 @@ const logger = require('./logger');
  */
 async function checkCaptchaCooldownForLogin(sessionOpts, hours, { force = false } = {}) {
   const cooldown = await getCaptchaCooldown(sessionOpts, hours);
-  return { blocked: !force && cooldown.active === true, forced: Boolean(force), cooldown };
+  return {
+    blocked: !force && cooldown.active === true,
+    forced: Boolean(force),
+    cooldown,
+    manualRequired: cooldown.requireManualLogin === true
+  };
 }
 
 /**
@@ -353,7 +358,8 @@ async function runCheckin(options = {}) {
         const {
           blocked: captchaBlocked,
           forced: captchaForced,
-          cooldown: captchaCooldown
+          cooldown: captchaCooldown,
+          manualRequired
         } = await checkCaptchaCooldownForLogin(sessionOpts, config.CAPTCHA_COOLDOWN_HOURS, {
           force: isForce()
         });
@@ -362,6 +368,19 @@ async function runCheckin(options = {}) {
             { until: captchaCooldown.until },
             '--force: cooldown pós-captcha ignorado; tentando autenticar mesmo assim.'
           );
+        }
+        if (manualRequired && !captchaForced) {
+          logger.warn(
+            { until: captchaCooldown.until, hours: captchaCooldown.hours },
+            'Login remoto suspenso: sessão precisa ser renovada manualmente (pós-bloqueio RGV587).'
+          );
+          const gateErr = new Error(
+            'Login remoto suspenso após bloqueio anti-bot (RGV587): faça o login na máquina local, resolva o captcha e importe a sessão (node import_session.js).'
+          );
+          gateErr.isManualLoginRequired = true;
+          gateErr.cooldownHours = captchaCooldown.hours;
+          gateErr.cooldownUntil = captchaCooldown.until;
+          throw gateErr;
         }
         if (captchaBlocked) {
           logger.warn(
@@ -393,11 +412,10 @@ async function runCheckin(options = {}) {
           // execuções (não re-registra quando a falha É o próprio cooldown).
           // RGV587 usa cooldown customizado de 48h gravado no meta da conta.
           if (loginErr.isCaptchaChallenge && !loginErr.isCaptchaCooldown) {
-            await recordCaptchaChallenge(
-              sessionOpts,
-              new Date(),
-              loginErr.captchaCooldownHours || null
-            ).catch(() => {});
+            await recordCaptchaChallenge(sessionOpts, new Date(), {
+              cooldownHours: loginErr.captchaCooldownHours || null,
+              requireManualLogin: loginErr.isRiskControl === true
+            }).catch(() => {});
             if (loginErr.isRiskControl) {
               const hours = loginErr.captchaCooldownHours || config.CAPTCHA_COOLDOWN_HOURS;
               loginErr.cooldownHours = hours;

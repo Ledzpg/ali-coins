@@ -37,14 +37,23 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   manual** das moedas enquanto a pausa estiver ativa. Diferente do captcha comum, o bloqueio
   de risco notifica também nas execuções em que o login é pulado pelo cooldown (antes
   silenciadas).
+- **Login remoto suspenso até renovação manual da sessão (`libs/session.js`, `collect.js`,
+  `import_session.js`, `all.js`, `libs/notify.js`):** quando o bloqueio de risco termina, o
+  cooldown expira mas **nenhuma tentativa de login remoto é feita** — o meta guarda o gate
+  `captchaRequireManualLogin`, liberado somente quando uma sessão nova é importada/renovada
+  localmente. O usuário recebe a notificação `manual_login_required` com o passo a passo:
+  login local no navegador → resolver o captcha, se aparecer → `export_session.js` +
+  `import_session.js`. Sem a renovação, cada run apenas notifica (não loga), evitando novos
+  bloqueios; o cron é liberado de fato quando a sessão importada chega.
 
 ### Testes
 
 - Novos testes em `tests/login_reauth.test.js` e `tests/captcha_cooldown.test.js`:
   classificação do `ret` (RGV587/sucesso), decisão de autenticação (xman antigo não conta),
-  aborto por RGV587 com cooldown de 48h, leitura/limpeza das horas customizadas no meta e
-  mensagem `risk_blocked` (tempo restante + coleta manual); suíte em **455/455**;
-  lint/format limpos.
+  aborto por RGV587 com cooldown de 48h, leitura/limpeza das horas customizadas no meta,
+  gate manual pós-janela + liberação no import e mensagens `risk_blocked` e
+  `manual_login_required` (tempo restante + coleta manual + passo a passo); suíte em
+  **457/457**; lint/format limpos.
 
 ## [1.7.3] - 2026-10-06
 

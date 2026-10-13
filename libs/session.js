@@ -668,16 +668,17 @@ function isCaptchaCooldownActive(lastCaptchaAt, hours, now = new Date()) {
  * Registra um desafio anti-bot (captcha) no meta da conta (`lastCaptchaAt`), preservando
  * os demais campos. Usado pelo cooldown que evita novas tentativas de login.
  * `cooldownHours` (opcional) grava uma janela customizada — ex.: 48h no bloqueio de risco
- * RGV587 — que sobrepõe o padrão (CAPTCHA_COOLDOWN_HOURS) na leitura.
+ * RGV587 — que sobrepõe o padrão (CAPTCHA_COOLDOWN_HOURS) na leitura. `requireManualLogin`
+ * mantém o login remoto suspenso até a sessão ser renovada manualmente/importada.
  * @param {object} [options={}] Opções de caminho de sessão
  * @param {Date} [when=new Date()]
- * @param {number|null} [cooldownHours=null]
+ * @param {{cooldownHours?: number|null, requireManualLogin?: boolean}} [extras={}]
  * @returns {Promise<object|null>} Meta atualizado ou null em falha
  */
 async function recordCaptchaChallengeUnlocked(
   options = {},
   when = new Date(),
-  cooldownHours = null
+  { cooldownHours = null, requireManualLogin = false } = {}
 ) {
   const { mPath } = resolveSessionPaths(options);
   try {
@@ -694,6 +695,13 @@ async function recordCaptchaChallengeUnlocked(
     } else {
       delete meta.captchaCooldownHours;
       delete meta.captchaRiskControl;
+    }
+    // Gate manual (RGV587): depois do bloqueio, NENHUM login remoto é tentado até uma
+    // sessão nova ser importada/renovada localmente — vale além da janela de cooldown.
+    if (requireManualLogin === true) {
+      meta.captchaRequireManualLogin = true;
+    } else {
+      delete meta.captchaRequireManualLogin;
     }
     // Preserva a identificação da conta no meta (ex.: após a limpeza da sessão, que
     // remove o meta e deixaria só o marcador do captcha).
@@ -714,13 +722,14 @@ async function recordCaptchaChallengeUnlocked(
  * @param {object} [options={}] Opções de caminho de sessão
  * @param {number} [hours=12] Janela padrão (usada quando o meta não tem horas customizadas)
  * @param {Date} [now=new Date()]
- * @returns {{active: boolean, hours: number, lastCaptchaAt: string|null, until: string|null, riskControl: boolean}}
+ * @returns {{active: boolean, hours: number, lastCaptchaAt: string|null, until: string|null, riskControl: boolean, requireManualLogin: boolean}}
  */
 function getCaptchaCooldownUnlocked(options = {}, hours = 12, now = new Date()) {
   const { mPath } = resolveSessionPaths(options);
   let lastCaptchaAt = null;
   let customHours = null;
   let riskControl = false;
+  let requireManualLogin = false;
   try {
     if (fs.existsSync(mPath)) {
       const meta = JSON.parse(fs.readFileSync(mPath, 'utf-8'));
@@ -729,6 +738,7 @@ function getCaptchaCooldownUnlocked(options = {}, hours = 12, now = new Date()) 
         customHours = meta.captchaCooldownHours;
       }
       if (meta && meta.captchaRiskControl === true) riskControl = true;
+      if (meta && meta.captchaRequireManualLogin === true) requireManualLogin = true;
     }
   } catch {
     // Meta ilegível: sem cooldown (o login segue o fluxo normal)
@@ -739,7 +749,7 @@ function getCaptchaCooldownUnlocked(options = {}, hours = 12, now = new Date()) 
   const until = active
     ? new Date(new Date(lastCaptchaAt).getTime() + effectiveHours * 60 * 60 * 1000).toISOString()
     : null;
-  return { active, hours: effectiveHours, lastCaptchaAt, until, riskControl };
+  return { active, hours: effectiveHours, lastCaptchaAt, until, riskControl, requireManualLogin };
 }
 
 /**
@@ -756,13 +766,15 @@ async function clearCaptchaChallengeUnlocked(options = {}) {
     if (
       meta.lastCaptchaAt === undefined &&
       meta.captchaCooldownHours === undefined &&
-      meta.captchaRiskControl === undefined
+      meta.captchaRiskControl === undefined &&
+      meta.captchaRequireManualLogin === undefined
     ) {
       return meta;
     }
     delete meta.lastCaptchaAt;
     delete meta.captchaCooldownHours;
     delete meta.captchaRiskControl;
+    delete meta.captchaRequireManualLogin;
     await safeWriteFile(mPath, JSON.stringify(meta, null, 2), 'utf-8', { durable: false });
     safeChmod600(mPath);
     return meta;
@@ -1209,9 +1221,9 @@ function updateSessionStreak(streakDays, options = {}) {
   return withSessionLock(sPath, () => updateSessionStreakUnlocked(streakDays, options));
 }
 
-function recordCaptchaChallenge(options = {}, when = new Date(), cooldownHours = null) {
+function recordCaptchaChallenge(options = {}, when = new Date(), extras = {}) {
   const { sPath } = resolveSessionPaths(options);
-  return withSessionLock(sPath, () => recordCaptchaChallengeUnlocked(options, when, cooldownHours));
+  return withSessionLock(sPath, () => recordCaptchaChallengeUnlocked(options, when, extras));
 }
 
 function getCaptchaCooldown(options = {}, hours = 12, now = new Date()) {

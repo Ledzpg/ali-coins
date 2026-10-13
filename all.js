@@ -65,6 +65,16 @@ async function notifyCaptchaCooldownReleased({ account, config }) {
   }
   if (!cooldown.lastCaptchaAt || cooldown.active) return;
 
+  // Gate manual (pós-RGV587): o cooldown expirou, mas o login remoto NÃO será tentado até
+  // a sessão ser renovada/importada — o aviso com as instruções é enviado pelo fluxo de erro.
+  if (cooldown.requireManualLogin === true) {
+    logger.warn(
+      { lastCaptchaAt: cooldown.lastCaptchaAt },
+      'Cooldown expirado, mas o login remoto segue suspenso até a sessão ser renovada manualmente (import).'
+    );
+    return;
+  }
+
   logger.info(
     { lastCaptchaAt: cooldown.lastCaptchaAt },
     'Cooldown pós-captcha expirado; login será tentado normalmente nesta execução.'
@@ -348,11 +358,13 @@ async function main() {
               config,
               chatId: account?.telegramChatId,
               event:
-                err && err.isRiskControl
-                  ? 'risk_blocked'
-                  : shouldNotifyCaptchaFailure(err)
-                    ? 'captcha_required'
-                    : 'failure',
+                err && err.isManualLoginRequired
+                  ? 'manual_login_required'
+                  : err && err.isRiskControl
+                    ? 'risk_blocked'
+                    : shouldNotifyCaptchaFailure(err)
+                      ? 'captcha_required'
+                      : 'failure',
               error: err
             });
           }
@@ -536,6 +548,8 @@ async function main() {
       let anyAccountCaptchaFirstTime = false;
       let anyAccountRiskControl = false;
       let firstRiskControlError = null;
+      let anyAccountManualLoginRequired = false;
+      let firstManualLoginError = null;
       // Distingue "todas as contas com lock ativo" (exit 3) de falha genérica de lock (exit 1)
       let lockActiveCount = 0;
       let nonLockFailureCount = 0;
@@ -637,6 +651,7 @@ async function main() {
         let accIsCaptchaRequired = false;
         let accIsCaptchaCooldown = false;
         let accIsRiskControl = false;
+        let accIsManualLoginRequired = false;
         let accRiskCooldownHours = null;
         let accRiskCooldownUntil = null;
         let accStreakBroken = false;
@@ -763,6 +778,15 @@ async function main() {
               '[Anti-bot] Captcha/desafio de segurança no login; novas tentativas ficam pausadas pelo cooldown configurado.'
             );
           }
+          if (accErr.isManualLoginRequired) {
+            accIsManualLoginRequired = true;
+            anyAccountManualLoginRequired = true;
+            if (!firstManualLoginError) firstManualLoginError = accErr;
+            logger.error(
+              { account: account.maskedUser },
+              '[Anti-bot] Login remoto suspenso até renovação manual da sessão (login local + captcha + import).'
+            );
+          }
           if (accImportedExpired) {
             logger.error(
               { account: account.maskedUser },
@@ -852,22 +876,24 @@ async function main() {
               accPayload.nextAccountAt = nextAccountAt ? nextAccountAt.toISOString() : null;
               accPayload.nextAccountUser = hasNextAccount ? accounts[i + 1].maskedUser : null;
             }
-            const accEvent = accIs2FARequired
-              ? '2fa_required'
-              : accStreakBroken
-                ? 'streak_break'
-                : accIsRiskControl
-                  ? 'risk_blocked'
-                  : accIsCaptchaRequired
-                    ? 'captcha_required'
-                    : accError
-                      ? 'failure'
-                      : (accCheckin &&
-                            (!accCheckin.alreadyCollected ||
-                              accCheckin.checkinCoinsFromLedger === true)) ||
-                          (accTasks && accTasks.totalActions > 0)
-                        ? 'success'
-                        : 'already_collected';
+            const accEvent = accIsManualLoginRequired
+              ? 'manual_login_required'
+              : accIs2FARequired
+                ? '2fa_required'
+                : accStreakBroken
+                  ? 'streak_break'
+                  : accIsRiskControl
+                    ? 'risk_blocked'
+                    : accIsCaptchaRequired
+                      ? 'captcha_required'
+                      : accError
+                        ? 'failure'
+                        : (accCheckin &&
+                              (!accCheckin.alreadyCollected ||
+                                accCheckin.checkinCoinsFromLedger === true)) ||
+                            (accTasks && accTasks.totalActions > 0)
+                          ? 'success'
+                          : 'already_collected';
             const msSinceLastNotify = Date.now() - lastNotifyAt;
             if (lastNotifyAt && msSinceLastNotify < NOTIFY_MIN_SPACING_MS) {
               await new Promise((resolve) =>
@@ -937,6 +963,7 @@ async function main() {
           riskControl: accIsRiskControl,
           riskCooldownHours: accRiskCooldownHours,
           riskCooldownUntil: accRiskCooldownUntil,
+          manualLoginRequired: accIsManualLoginRequired,
           startTime: accTiming.startTime,
           endTime: accTiming.endTime,
           duration: accTiming.duration,
@@ -983,6 +1010,8 @@ async function main() {
       let multiEvent = 'success';
       if (allAccountsLocked) multiEvent = 'lock_active';
       else if (anyAccountStreakBroken) multiEvent = 'streak_break';
+      else if (anyAccountManualLoginRequired && !anyAccountSuccess)
+        multiEvent = 'manual_login_required';
       else if (anyAccount2FARequired && !anyAccountSuccess) multiEvent = '2fa_required';
       else if (anyAccountRiskControl && !anyAccountSuccess) multiEvent = 'risk_blocked';
       else if (anyAccountCaptchaRequired && !anyAccountSuccess) multiEvent = 'captcha_required';
@@ -1008,7 +1037,12 @@ async function main() {
             config,
             report: multiPayload,
             event: multiEvent,
-            error: multiEvent === 'risk_blocked' ? firstRiskControlError : undefined
+            error:
+              multiEvent === 'risk_blocked'
+                ? firstRiskControlError
+                : multiEvent === 'manual_login_required'
+                  ? firstManualLoginError
+                  : undefined
           });
           lastNotifyAt = Date.now();
         } catch (tgErr) {

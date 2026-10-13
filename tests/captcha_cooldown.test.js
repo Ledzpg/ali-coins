@@ -92,34 +92,78 @@ test('libs/session.js - cooldown de risco RGV587 usa 48h sobre o padrão', async
     const opts = { baseDir: tmp, sessionPath, sessionMetaPath: metaPath };
 
     const at = new Date('2026-10-13T12:00:00Z');
-    const meta = await recordCaptchaChallenge(opts, at, 48);
+    const meta = await recordCaptchaChallenge(opts, at, {
+      cooldownHours: 48,
+      requireManualLogin: true
+    });
     assert.strictEqual(meta.captchaCooldownHours, 48, 'horas custom gravadas no meta');
     assert.strictEqual(meta.captchaRiskControl, true, 'registro marcado como risco');
+    assert.strictEqual(meta.captchaRequireManualLogin, true, 'gate manual gravado no meta');
 
     const now = new Date('2026-10-14T11:00:00Z'); // 23h depois: além do padrão de 12h
     const cd = await getCaptchaCooldown(opts, 12, now);
     assert.strictEqual(cd.active, true, '48h deve sobrepor o padrão de 12h');
     assert.strictEqual(cd.hours, 48, 'janela efetiva é 48h');
     assert.strictEqual(cd.riskControl, true, 'cooldown sinaliza risco');
+    assert.strictEqual(cd.requireManualLogin, true, 'gate manual sinalizado');
     assert.strictEqual(cd.until, new Date('2026-10-15T12:00:00Z').toISOString());
 
     const after = new Date('2026-10-15T13:00:00Z');
     const expired = await getCaptchaCooldown(opts, 12, after);
     assert.strictEqual(expired.active, false, 'expira após as 48h');
+    assert.strictEqual(
+      expired.requireManualLogin,
+      true,
+      'gate manual permanece mesmo após a janela expirar'
+    );
 
     await clearCaptchaChallenge(opts);
     const clearedMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
     assert.strictEqual(clearedMeta.captchaCooldownHours, undefined);
     assert.strictEqual(clearedMeta.captchaRiskControl, undefined);
+    assert.strictEqual(clearedMeta.captchaRequireManualLogin, undefined);
     const cleared = await getCaptchaCooldown(opts, 12, now);
     assert.strictEqual(cleared.active, false);
     assert.strictEqual(cleared.riskControl, false);
+    assert.strictEqual(cleared.requireManualLogin, false);
 
-    // Registro sem horas custom → volta ao padrão (12h) e sem marcação de risco
+    // Registro sem horas custom → volta ao padrão (12h) e sem marcação de risco/gate
     await recordCaptchaChallenge(opts, at);
     const def = await getCaptchaCooldown(opts, 12, new Date('2026-10-13T18:00:00Z'));
     assert.strictEqual(def.hours, 12);
     assert.strictEqual(def.riskControl, false);
+    assert.strictEqual(def.requireManualLogin, false);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('collect.js - checkCaptchaCooldownForLogin sinaliza renovação manual após a janela', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ali-coins-manual-gate-'));
+  try {
+    const sessionPath = path.join(tmp, 'session_x.json');
+    const metaPath = path.join(tmp, 'session_meta_x.json');
+    const sessionOpts = {
+      baseDir: tmp,
+      sessionPath,
+      sessionMetaPath: metaPath,
+      account: { user: 'x@example.com' }
+    };
+
+    // Registro de risco há 49h (janela de 48h já expirou), mas com gate manual pendente
+    const past = new Date(Date.now() - 49 * 3600 * 1000);
+    await recordCaptchaChallenge(sessionOpts, past, {
+      cooldownHours: 48,
+      requireManualLogin: true
+    });
+    const r = await checkCaptchaCooldownForLogin(sessionOpts, 12);
+    assert.strictEqual(r.cooldown.active, false, 'janela de 48h expirada');
+    assert.strictEqual(r.manualRequired, true, 'gate manual permanece ativo até renovar a sessão');
+
+    // --force continua sendo o override manual explícito
+    const forced = await checkCaptchaCooldownForLogin(sessionOpts, 12, { force: true });
+    assert.strictEqual(forced.manualRequired, true, 'gate continua sinalizado');
+    assert.strictEqual(forced.blocked, false, '--force ignora a pausa');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -337,6 +381,41 @@ test('libs/notify.js - evento risk_blocked avisa bloqueio por bot, tempo restant
   assert.ok(multi.includes('Tempo restante'));
 });
 
+test('libs/notify.js - evento manual_login_required instrui login local, captcha e export/import', () => {
+  const msg = buildMessage({
+    event: 'manual_login_required',
+    hostname: 'test-host',
+    report: { type: 'unified_report', user: 'x***@example.com' },
+    error: {
+      isManualLoginRequired: true,
+      cooldownHours: 48,
+      cooldownUntil: new Date(Date.now() - 3600 * 1000).toISOString()
+    }
+  });
+  assert.ok(msg.includes('Login remoto suspenso'), 'avisa a suspensão');
+  assert.ok(msg.includes('na máquina local'), 'instrui o login local');
+  assert.ok(msg.includes('captcha'), 'manda resolver o captcha se existir');
+  assert.ok(msg.includes('export_session.js'), 'manda exportar a sessão');
+  assert.ok(msg.includes('import_session.js'), 'manda importar a sessão');
+  assert.ok(msg.includes('só voltará a executar'), 'explica quando a automação volta');
+  assert.ok(msg.includes('x***@example.com'), 'identifica a conta');
+  assert.ok(msg.includes('Cooldown encerrado em'), 'cooldown passado aparece como encerrado');
+
+  // Cooldown ainda em curso: a mensagem não deve dizer que "encerrou"
+  const futuro = buildMessage({
+    event: 'manual_login_required',
+    hostname: 'test-host',
+    report: { type: 'unified_report', user: 'x***@example.com' },
+    error: {
+      isManualLoginRequired: true,
+      cooldownHours: 48,
+      cooldownUntil: new Date(Date.now() + 2 * 3600 * 1000).toISOString()
+    }
+  });
+  assert.ok(futuro.includes('Cooldown previsto até'), 'cooldown futuro aparece como previsto');
+  assert.ok(!futuro.includes('Cooldown encerrado em'), 'não diz que encerrou antes da hora');
+});
+
 test('libs/session.js - login novo (freshLogin) zera o cooldown pós-captcha', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ali-coins-fresh-'));
   try {
@@ -411,7 +490,13 @@ test('import_session - importar sessão nova remove o cooldown do host', async (
     const targetMeta = path.join(tmp, 'session_meta_b.json');
     fs.writeFileSync(
       targetMeta,
-      JSON.stringify({ user: 'x@example.com', lastCaptchaAt: '2026-09-24T09:00:00Z' }),
+      JSON.stringify({
+        user: 'x@example.com',
+        lastCaptchaAt: '2026-09-24T09:00:00Z',
+        captchaCooldownHours: 48,
+        captchaRiskControl: true,
+        captchaRequireManualLogin: true
+      }),
       'utf-8'
     );
 
@@ -426,6 +511,9 @@ test('import_session - importar sessão nova remove o cooldown do host', async (
 
     const meta = JSON.parse(fs.readFileSync(targetMeta, 'utf-8'));
     assert.strictEqual(meta.lastCaptchaAt, undefined, 'import limpa o cooldown');
+    assert.strictEqual(meta.captchaCooldownHours, undefined, 'import limpa o cooldown custom');
+    assert.strictEqual(meta.captchaRiskControl, undefined, 'import limpa a marcação de risco');
+    assert.strictEqual(meta.captchaRequireManualLogin, undefined, 'import libera o gate manual');
     assert.strictEqual(meta.isImported, true, 'sessão importada marcada');
 
     const cooldown = await getCaptchaCooldown(
@@ -433,6 +521,7 @@ test('import_session - importar sessão nova remove o cooldown do host', async (
       12
     );
     assert.strictEqual(cooldown.active, false, 'nova tentativa de login permitida');
+    assert.strictEqual(cooldown.requireManualLogin, false, 'gate manual liberado pelo import');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

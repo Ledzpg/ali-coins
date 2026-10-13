@@ -441,7 +441,7 @@ function buildNextAccountLine(report) {
  * Constrói mensagem formatada em HTML para o Telegram a partir do relatório e evento
  * @param {object} params
  * @param {object} [params.report] Objeto de relatório (--json) de libs/report.js
- * @param {'success'|'already_collected'|'failure'|'lock_active'|'dry_run'|'manual_test'|'streak_break'|'2fa_required'|'captcha_required'|'captcha_cooldown_released'|'risk_blocked'} [params.event='success']
+ * @param {'success'|'already_collected'|'failure'|'lock_active'|'dry_run'|'manual_test'|'streak_break'|'2fa_required'|'captcha_required'|'captcha_cooldown_released'|'risk_blocked'|'manual_login_required'} [params.event='success']
  * @param {Error|object|string} [params.error]
  * @param {string} [params.customMessage]
  * @param {string} [params.hostname]
@@ -508,6 +508,45 @@ function buildMessage({
       event === 'captcha_required')
   ) {
     return buildMultiAccountMessage({ report, event, error, safeHost, now });
+  }
+
+  // Login remoto suspenso após bloqueio anti-bot (RGV587): o cooldown acabou, mas o gate
+  // manual exige renovar a sessão na máquina local (login + captcha + export/import).
+  if (event === 'manual_login_required') {
+    const manualAccounts =
+      report && Array.isArray(report.accounts)
+        ? report.accounts.filter((acc) => acc && acc.manualLoginRequired === true)
+        : [];
+    const userDisplay = resolveUser(report);
+    const contasLine = manualAccounts.length
+      ? `👤 <b>Contas:</b> ${manualAccounts.map((acc) => `<code>${escapeHtml(acc.user)}</code>`).join(', ')}`
+      : userDisplay
+        ? `👤 <b>Conta:</b> <code>${escapeHtml(userDisplay)}</code>`
+        : null;
+    const until = error && error.cooldownUntil ? new Date(error.cooldownUntil) : null;
+    const untilValid = until && !isNaN(until.getTime());
+    const untilLine = untilValid
+      ? until.getTime() > Date.now()
+        ? `⏳ <b>Cooldown previsto até ${formatDateTime(until)}.</b>`
+        : `⏳ <b>Cooldown encerrado em ${formatDateTime(until)}.</b>`
+      : null;
+
+    return [
+      `🔒 ali-coins — ${now}`,
+      '🔒 <b>Login remoto suspenso após bloqueio anti-bot (RGV587)</b>',
+      contasLine,
+      `🖥️ <b>Host:</b> <code>${safeHost}</code>`,
+      untilLine,
+      '',
+      '<b>Ação necessária (na ordem):</b>',
+      '1️⃣ Faça o login no AliExpress <b>na máquina local</b> (navegador real).',
+      '2️⃣ Resolva o captcha/desafio, se aparecer.',
+      '3️⃣ Exporte a sessão com <code>node export_session.js</code> e importe no host remoto com <code>node import_session.js</code>.',
+      '',
+      'ℹ️ A automação só voltará a executar após a sessão ser importada.'
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   // Bloqueio de risco do AliExpress (RGV587/TMD): avisa que a conta foi bloqueada por
