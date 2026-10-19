@@ -38,6 +38,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ### Corrigido
 
+- **Heap do Node adaptativo nos `run*.sh`:** máquinas com mais RAM sobem o teto de
+  256 MB para 384/512 MB (hosts de 1 GB continuam em 256 MB), corrigindo o
+  `JavaScript heap out of memory` observado no fluxo unificado (check-in + tarefas)
+  em um único processo. `ALI_HEAP_MB`/`NODE_OPTIONS` permitem forçar um valor, e o
+  `all.js` agora alerta quando o heap se aproxima do teto.
 - **Janela manual reconhece `xman_us_t` além de `login_aliyunid_ticket`:** o login
   desktop pode gravar apenas `xman_us_t`; a espera ficava presa mesmo com a página de
   moedas já aberta. A detecção agora usa os mesmos cookies fortes de `validateSession`
