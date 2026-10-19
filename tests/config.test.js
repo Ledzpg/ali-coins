@@ -180,6 +180,7 @@ test('config.js - MANUAL_LOGIN: defaults, validação e overrides da CLI', () =>
   assert.strictEqual(defaults.MANUAL_LOGIN, 'auto');
   assert.strictEqual(defaults.MANUAL_LOGIN_PROMPT_TIMEOUT_MS, 60000);
   assert.strictEqual(defaults.MANUAL_LOGIN_TIMEOUT_MS, 900000);
+  assert.strictEqual(defaults.MANUAL_LOGIN_CONTEXT, 'desktop');
 
   assert.strictEqual(configSchema.parse({ ...base, MANUAL_LOGIN: 'never' }).MANUAL_LOGIN, 'never');
   assert.strictEqual(
@@ -189,14 +190,31 @@ test('config.js - MANUAL_LOGIN: defaults, validação e overrides da CLI', () =>
   const invalid = configSchema.safeParse({ ...base, MANUAL_LOGIN: 'sometimes' });
   assert.strictEqual(invalid.success, false, 'valor inválido deve falhar');
 
+  assert.strictEqual(
+    configSchema.parse({ ...base, MANUAL_LOGIN_CONTEXT: ' MOBILE ' }).MANUAL_LOGIN_CONTEXT,
+    'mobile'
+  );
+  assert.strictEqual(
+    configSchema.safeParse({ ...base, MANUAL_LOGIN_CONTEXT: 'tablet' }).success,
+    false,
+    'contexto inválido deve falhar'
+  );
+
   const saved = {
     ENCRYPT_LOCAL_SESSION: process.env.ENCRYPT_LOCAL_SESSION,
-    MANUAL_LOGIN: process.env.MANUAL_LOGIN
+    MANUAL_LOGIN: process.env.MANUAL_LOGIN,
+    MANUAL_LOGIN_CONTEXT: process.env.MANUAL_LOGIN_CONTEXT
   };
   process.env.ENCRYPT_LOCAL_SESSION = 'false';
   process.env.MANUAL_LOGIN = 'never';
+  process.env.MANUAL_LOGIN_CONTEXT = 'mobile';
   try {
     assert.strictEqual(loadConfig(false, ['node', 'all.js']).MANUAL_LOGIN, 'never');
+    assert.strictEqual(
+      loadConfig(false, ['node', 'all.js']).MANUAL_LOGIN_CONTEXT,
+      'mobile',
+      'MANUAL_LOGIN_CONTEXT deve vir do ambiente'
+    );
     assert.strictEqual(
       loadConfig(false, ['node', 'all.js', '--manual-login']).MANUAL_LOGIN,
       'always',

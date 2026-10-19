@@ -22,6 +22,10 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   resolver login/captcha/2FA. Ao detectar o cookie forte `login_aliyunid_ticket`, a sessão
   é salva com `freshLogin`, a janela temporária é fechada e o fluxo retoma em headless.
   O menu também é oferecido após uma falha anti-bot no login automático, sem burlar captcha.
+- **Janela manual em contexto desktop por padrão (`MANUAL_LOGIN_CONTEXT=desktop|mobile`):**
+  evita a emulação de toque do Pixel 7, que impedia o slider/captcha de responder ao mouse
+  em ambientes como o WSLg. `mobile` reativa a emulação Pixel 7; o fluxo headless continua
+  mobile em qualquer caso.
 - **Configuração e CLI:** `MANUAL_LOGIN=auto|never|always` (padrão `auto`),
   `MANUAL_LOGIN_PROMPT_TIMEOUT_MS` (60s) e `MANUAL_LOGIN_TIMEOUT_MS` (15min), além das flags
   `--manual-login` (equivale a `always`) e `--no-manual-login` (equivale a `never`).

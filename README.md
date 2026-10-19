@@ -134,6 +134,7 @@ HEADLESS=true
 # MANUAL_LOGIN=auto
 # MANUAL_LOGIN_PROMPT_TIMEOUT_MS=60000   # timeout do menu (padrão: 60s; expira em headless)
 # MANUAL_LOGIN_TIMEOUT_MS=900000         # timeout da janela de login (padrão: 15min)
+# MANUAL_LOGIN_CONTEXT=desktop           # desktop (mouse/captcha) | mobile (Pixel 7)
 
 # Nível de log estruturado (trace, debug, info, warn, error, fatal, silent) (padrão: info)
 LOG_LEVEL=info
@@ -232,6 +233,10 @@ Na opção 2, você resolve login/captcha/2FA **manualmente** na janela do AliEx
 detecta o cookie forte de autenticação (`login_aliyunid_ticket`), salva a sessão, fecha a
 janela e retoma o restante da execução em headless. Nenhum captcha é burlado.
 
+A janela usa por padrão um contexto **desktop** (sem emulação de toque), para que o
+slider/captcha aceite o mouse. Use `MANUAL_LOGIN_CONTEXT=mobile` se quiser reproduzir a
+emulação Pixel 7 do fluxo mobile.
+
 **Requisitos:** TTY interativo e GUI (Windows/macOS; Linux com `DISPLAY` ou
 `WAYLAND_DISPLAY`). Em cron, Docker, CI ou SSH sem display, o menu não aparece e o
 comportamento é idêntico ao da versão 1.x.
@@ -240,6 +245,7 @@ comportamento é idêntico ao da versão 1.x.
 MANUAL_LOGIN=auto                      # auto | never | always
 MANUAL_LOGIN_PROMPT_TIMEOUT_MS=60000   # menu sem resposta = opção 1
 MANUAL_LOGIN_TIMEOUT_MS=900000         # janela sem login = falha (sem retry)
+MANUAL_LOGIN_CONTEXT=desktop           # desktop (padrão) | mobile (Pixel 7)
 ```
 
 Flags equivalentes: `--manual-login` (`always`) e `--no-manual-login` (`never`).

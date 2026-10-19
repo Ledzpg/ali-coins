@@ -12,7 +12,8 @@
  * desafio é resolvido pelo operador.
  */
 const readline = require('node:readline');
-const { launchBrowser, newMobileContext } = require('../../browser');
+const { launchBrowser, newMobileContext, newDesktopContext } = require('../../browser');
+const { SELECTORS } = require('../selectors');
 const { saveSession } = require('../session');
 const { gotoWithRetry } = require('./navigation');
 const { maskUser } = require('../../config');
@@ -22,6 +23,7 @@ const CHOICE_HEADLESS = 1;
 const CHOICE_MANUAL = 2;
 const AUTH_TICKET_COOKIE = 'login_aliyunid_ticket';
 const MOBILE_COIN_URL = 'https://m.aliexpress.com/p/coin-index/index.html';
+const DESKTOP_COIN_URL = SELECTORS.desktop.mycoinUrl;
 const LOGIN_FORM_SELECTOR =
   'input[type="password"], #fm-login-password, #fm-login-id, input[name="loginId"]';
 const DEFAULT_PROMPT_TIMEOUT_MS = 60000;
@@ -327,6 +329,10 @@ async function waitForManualLogin({
  * Abre (ou reaproveita) uma janela visível, aguarda o login manual, salva a sessão
  * com `freshLogin` e fecha a janela temporária. O chamador retoma em headless.
  *
+ * Por padrão a janela usa um contexto desktop (sem emulação de toque), porque o
+ * slider/captcha do AliExpress responde ao mouse. `MANUAL_LOGIN_CONTEXT=mobile`
+ * reativa a emulação Pixel 7 usada pelo fluxo mobile.
+ *
  * Quando `existingPage`/`existingContext` são passados (HEADLESS=false), a janela
  * já aberta é reaproveitada e NÃO é fechada ao final.
  *
@@ -345,6 +351,7 @@ async function performManualLogin({
   const {
     launch = launchBrowser,
     createMobileContext = newMobileContext,
+    createDesktopContext = newDesktopContext,
     save = saveSession,
     goto = gotoWithRetry,
     waitForLogin = waitForManualLogin,
@@ -366,20 +373,33 @@ async function performManualLogin({
   let page = existingPage || null;
   let ownsBrowser = false;
 
+  // Desktop por padrão: sem hasTouch/isMobile, o captcha de slider aceita o mouse.
+  const manualContext = config.MANUAL_LOGIN_CONTEXT === 'mobile' ? 'mobile' : 'desktop';
+  const createContext = manualContext === 'mobile' ? createMobileContext : createDesktopContext;
+  const targetUrl = manualContext === 'mobile' ? MOBILE_COIN_URL : DESKTOP_COIN_URL;
+
   try {
     if (!reuse) {
       writeLog.info(
-        { user: maskUser(user) },
+        { user: maskUser(user), context: manualContext },
         config.HEADLESS
           ? 'Abrindo janela visível para login manual (o fluxo headless será retomado depois)...'
           : 'Abrindo janela para login manual e salvamento da sessão...'
       );
       browser = await launch({ headless: false });
       ownsBrowser = true;
-      context = await createMobileContext(browser, storageState, { allowMedia: true });
+      context = await createContext(browser, storageState, { allowMedia: true });
+      if (manualContext === 'desktop') {
+        // Mesmo disfarce do contexto mobile: reduz o sinal de automação sem
+        // interferir no captcha, que continua sendo resolvido pelo operador.
+        await context.addInitScript(() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+          window.chrome = { runtime: {} };
+        });
+      }
       page = await context.newPage();
       try {
-        await goto(page, MOBILE_COIN_URL, {
+        await goto(page, targetUrl, {
           waitUntil: 'domcontentloaded',
           timeout: config.NAV_TIMEOUT || 35000
         });

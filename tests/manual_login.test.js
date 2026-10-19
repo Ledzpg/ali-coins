@@ -30,6 +30,7 @@ function makeContext() {
   return {
     page,
     newPage: async () => page,
+    addInitScript: async () => {},
     storageState: async () => ({
       cookies: [{ name: 'login_aliyunid_ticket', value: 'ticket' }],
       origins: []
@@ -459,6 +460,7 @@ test('manual-login - performManualLogin abre janela, salva com freshLogin e fech
     config: {
       ALI_USER: 'user@example.com',
       MANUAL_LOGIN_TIMEOUT_MS: 1234,
+      MANUAL_LOGIN_CONTEXT: 'mobile',
       NAV_TIMEOUT: 999
     },
     sessionOpts: { baseDir: '/tmp/ali-coins-manual-test' },
@@ -501,6 +503,47 @@ test('manual-login - performManualLogin abre janela, salva com freshLogin e fech
   assert.strictEqual(saved.options.baseDir, '/tmp/ali-coins-manual-test');
 });
 
+test('manual-login - performManualLogin usa contexto desktop por padrão (captcha com mouse)', async () => {
+  let created = null;
+  let targetUrl = null;
+  let saved = null;
+  const context = makeContext();
+
+  const result = await performManualLogin({
+    config: {
+      ALI_USER: 'user@example.com',
+      MANUAL_LOGIN_TIMEOUT_MS: 1000
+    },
+    account: { user: 'user@example.com' },
+    deps: {
+      launch: async () => ({ close: async () => {} }),
+      createDesktopContext: async (b, storageState, options) => {
+        created = { b, storageState, options };
+        return context;
+      },
+      createMobileContext: async () => {
+        throw new Error('não deve usar o contexto mobile por padrão');
+      },
+      goto: async (page, url) => {
+        targetUrl = url;
+      },
+      waitForLogin: async () => {},
+      save: async (storage, user) => {
+        saved = { storage, user };
+        return { sessionData: storage, metaData: { user } };
+      },
+      writeLog: noopLog
+    }
+  });
+
+  assert.ok(created, 'createDesktopContext deve ser chamado');
+  assert.strictEqual(created.storageState, null);
+  assert.strictEqual(created.options.allowMedia, true);
+  assert.ok(targetUrl.includes('coin-pc-index'), `URL desktop inesperada: ${targetUrl}`);
+  assert.strictEqual(saved.user, 'user@example.com');
+  assert.strictEqual(result.reusedContext, false);
+});
+
 test('manual-login - performManualLogin reaproveita a janela existente em HEADLESS=false', async () => {
   let launched = 0;
   let closed = 0;
@@ -539,7 +582,7 @@ test('manual-login - performManualLogin falha se a sessão não puder ser salva'
   let closed = 0;
   await assert.rejects(
     performManualLogin({
-      config: { MANUAL_LOGIN_TIMEOUT_MS: 1000 },
+      config: { MANUAL_LOGIN_TIMEOUT_MS: 1000, MANUAL_LOGIN_CONTEXT: 'mobile' },
       account: { user: 'user@example.com' },
       deps: {
         launch: async () => ({
@@ -563,7 +606,7 @@ test('manual-login - performManualLogin fecha o navegador quando a espera falha'
   let closed = 0;
   await assert.rejects(
     performManualLogin({
-      config: { MANUAL_LOGIN_TIMEOUT_MS: 1000 },
+      config: { MANUAL_LOGIN_TIMEOUT_MS: 1000, MANUAL_LOGIN_CONTEXT: 'mobile' },
       account: { user: 'user@example.com' },
       deps: {
         launch: async () => ({
