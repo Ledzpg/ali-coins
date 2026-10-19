@@ -230,8 +230,8 @@ terminal com interface gráfica, o bot oferece um menu de duas opções:
 2. **Abrir uma janela para login manual**
 
 Na opção 2, você resolve login/captcha/2FA **manualmente** na janela do AliExpress. O bot
-detecta o cookie forte de autenticação (`login_aliyunid_ticket`), salva a sessão, fecha a
-janela e retoma o restante da execução em headless. Nenhum captcha é burlado.
+detecta um cookie forte de autenticação (`login_aliyunid_ticket` ou `xman_us_t`), salva a
+sessão, fecha a janela e retoma o restante da execução em headless. Nenhum captcha é burlado.
 
 A janela usa por padrão um contexto **desktop** (sem emulação de toque), para que o
 slider/captcha aceite o mouse. Use `MANUAL_LOGIN_CONTEXT=mobile` se quiser reproduzir a

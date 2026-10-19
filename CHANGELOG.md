@@ -38,6 +38,10 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ### Corrigido
 
+- **Janela manual reconhece `xman_us_t` além de `login_aliyunid_ticket`:** o login
+  desktop pode gravar apenas `xman_us_t`; a espera ficava presa mesmo com a página de
+  moedas já aberta. A detecção agora usa os mesmos cookies fortes de `validateSession`
+  e registra qual sinal foi aceito.
 - **`saveSession(..., { freshLogin: true })` limpa todo o estado anti-bot
   (`libs/session.js`):** além de `lastCaptchaAt` e dos marcadores de sessão importada,
   remove `captchaCooldownHours`, `captchaRiskControl` e `captchaRequireManualLogin`. Antes,

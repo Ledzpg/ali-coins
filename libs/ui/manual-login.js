@@ -4,9 +4,9 @@
  * O modo padrão continua 100% headless. Este módulo só entra em ação quando o
  * chamador detecta que o login é necessário (sem sessão, reautenticação ou gate
  * anti-bot) e o operador está em um terminal com interface gráfica. O operador
- * resolve login/captcha manualmente; o módulo apenas espera o cookie forte
- * `login_aliyunid_ticket`, salva a sessão e devolve o storageState para o fluxo
- * headless continuar.
+ * resolve login/captcha manualmente; o módulo espera um cookie forte
+ * (`login_aliyunid_ticket` ou `xman_us_t`), salva a sessão e devolve o storageState
+ * para o fluxo headless continuar.
  *
  * Não há tentativa de burlar captcha: a janela é do próprio AliExpress e o
  * desafio é resolvido pelo operador.
@@ -22,6 +22,10 @@ const logger = require('../../logger');
 const CHOICE_HEADLESS = 1;
 const CHOICE_MANUAL = 2;
 const AUTH_TICKET_COOKIE = 'login_aliyunid_ticket';
+// O login desktop grava `xman_us_t`; o mobile grava o ticket. `validateSession`
+// aceita qualquer um dos dois, então a janela manual também precisa aceitar ambos.
+const AUTH_USER_COOKIE = 'xman_us_t';
+const AUTH_COOKIES = [AUTH_TICKET_COOKIE, AUTH_USER_COOKIE];
 const MOBILE_COIN_URL = 'https://m.aliexpress.com/p/coin-index/index.html';
 const DESKTOP_COIN_URL = SELECTORS.desktop.mycoinUrl;
 const LOGIN_FORM_SELECTOR =
@@ -262,8 +266,9 @@ async function isLoginPromptVisible(page) {
 }
 
 /**
- * Aguarda o operador concluir o login na janela. Só considera concluído quando o
- * cookie forte existe e o formulário de login não está mais visível.
+ * Aguarda o operador concluir o login na janela. Só considera concluído quando um
+ * cookie forte novo/diferente (`login_aliyunid_ticket` ou `xman_us_t`) existe e o
+ * formulário de login não está mais visível.
  * @param {object} params
  * @returns {Promise<{ok: true, hasTicket: true}>}
  */
@@ -283,12 +288,16 @@ async function waitForManualLogin({
   const deadline = now() + maxTimeout;
   const interval = Math.max(1, Number(pollMs) || 2000);
 
-  // Ticket presente ANTES do login manual (sessão antiga/rejeitada). Se ele já existia,
-  // só aceitamos um ticket DIFERENTE: o mesmo valor pode ser cookie velho que sobreviveu
-  // à invalidação server-side — salvá-lo repetiria o falso positivo da 1.7.4.
-  let initialTicket = '';
+  // Cookies de autenticação presentes ANTES do login manual (sessão antiga/rejeitada).
+  // Se já existiam, só aceitamos um valor DIFERENTE: o mesmo valor pode ser cookie
+  // velho que sobreviveu à invalidação server-side — salvá-lo repetiria o falso
+  // positivo da 1.7.4. Sem valor inicial, o primeiro cookie forte já vale.
+  const initialAuth = {};
   try {
-    initialTicket = readCookie(await context.cookies(), AUTH_TICKET_COOKIE);
+    const initialCookies = await context.cookies();
+    for (const name of AUTH_COOKIES) {
+      initialAuth[name] = readCookie(initialCookies, name);
+    }
   } catch (err) {
     throw new ManualLoginError(
       `Não foi possível ler os cookies da janela de login: ${err.message}`
@@ -309,10 +318,13 @@ async function waitForManualLogin({
       );
     }
 
-    const ticket = readCookie(cookies, AUTH_TICKET_COOKIE);
-    const ticketIsNewOrFirst = Boolean(ticket) && (!initialTicket || ticket !== initialTicket);
-    if (ticketIsNewOrFirst && !(await isLoginPromptVisible(page))) {
-      return { ok: true, hasTicket: true };
+    const authCookie = AUTH_COOKIES.find((name) => {
+      const value = readCookie(cookies, name);
+      return Boolean(value) && (!initialAuth[name] || value !== initialAuth[name]);
+    });
+    if (authCookie && !(await isLoginPromptVisible(page))) {
+      // `hasTicket` é mantido por compatibilidade; `authCookie` diz qual sinal veio.
+      return { ok: true, hasTicket: true, authCookie };
     }
 
     const remaining = deadline - now();
@@ -423,7 +435,7 @@ async function performManualLogin({
       'Resolva o login/captcha/2FA na janela aberta. O bot aguarda o cookie de autenticação...'
     );
 
-    await waitForLogin({ context, page, timeoutMs });
+    const loginResult = await waitForLogin({ context, page, timeoutMs });
 
     const storage = await context.storageState();
     const saved = await save(storage, user, { ...sessionOpts, freshLogin: true });
@@ -434,7 +446,7 @@ async function performManualLogin({
     }
 
     writeLog.info(
-      { user: maskUser(user) },
+      { user: maskUser(user), authCookie: loginResult && loginResult.authCookie },
       'Login manual concluído e sessão salva. Retomando a execução.'
     );
 

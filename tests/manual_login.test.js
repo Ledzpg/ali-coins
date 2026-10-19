@@ -324,6 +324,44 @@ test('manual-login - waitForManualLogin aceita ticket quando o formulário de lo
   assert.strictEqual(result.hasTicket, true);
 });
 
+test('manual-login - waitForManualLogin aceita xman_us_t novo (login desktop)', async () => {
+  const page = {
+    isClosed: () => false,
+    $$: async () => [],
+    $: async () => null
+  };
+  let calls = 0;
+  const context = {
+    cookies: async () => {
+      calls++;
+      if (calls === 1) return [{ name: 'xman_us_t', value: 'xman_antigo' }];
+      return [{ name: 'xman_us_t', value: 'xman_novo' }];
+    }
+  };
+  const result = await waitForManualLogin({
+    context,
+    page,
+    timeoutMs: 1000,
+    sleep: async () => {}
+  });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.authCookie, 'xman_us_t');
+});
+
+test('manual-login - waitForManualLogin não aceita xman_us_t antigo que não se renovou', async () => {
+  const page = {
+    isClosed: () => false,
+    $$: async () => []
+  };
+  const context = {
+    cookies: async () => [{ name: 'xman_us_t', value: 'xman_antigo' }]
+  };
+  await assert.rejects(
+    waitForManualLogin({ context, page, timeoutMs: 0, now: () => 0 }),
+    ManualLoginTimeoutError
+  );
+});
+
 test('manual-login - waitForManualLogin não aceita ticket antigo com senha ainda visível', async () => {
   const page = {
     isClosed: () => false,
