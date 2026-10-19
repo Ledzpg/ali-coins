@@ -371,7 +371,7 @@ async function main() {
         } catch (tgErr) {
           logger.warn({ err: tgErr.message }, 'Falha ao enviar notificação Telegram de erro.');
         }
-        await gracefulExit(1);
+        await gracefulExit(err.isManualLoginRequired ? 7 : 1);
       }
 
       const step1EndTime = new Date();
@@ -652,6 +652,7 @@ async function main() {
         let accIsCaptchaCooldown = false;
         let accIsRiskControl = false;
         let accIsManualLoginRequired = false;
+        let accIsManualLoginAttempted = false;
         let accRiskCooldownHours = null;
         let accRiskCooldownUntil = null;
         let accStreakBroken = false;
@@ -780,11 +781,14 @@ async function main() {
           }
           if (accErr.isManualLoginRequired) {
             accIsManualLoginRequired = true;
+            accIsManualLoginAttempted = Boolean(accErr.manualAttempted);
             anyAccountManualLoginRequired = true;
             if (!firstManualLoginError) firstManualLoginError = accErr;
             logger.error(
-              { account: account.maskedUser },
-              '[Anti-bot] Login remoto suspenso até renovação manual da sessão (login local + captcha + import).'
+              { account: account.maskedUser, manualAttempted: accIsManualLoginAttempted },
+              accIsManualLoginAttempted
+                ? '[Anti-bot] Login manual em janela não foi concluído; intervenção do operador necessária (sem retry automático).'
+                : '[Anti-bot] Login remoto suspenso até renovação manual da sessão (login local + captcha + import).'
             );
           }
           if (accImportedExpired) {
@@ -964,6 +968,7 @@ async function main() {
           riskCooldownHours: accRiskCooldownHours,
           riskCooldownUntil: accRiskCooldownUntil,
           manualLoginRequired: accIsManualLoginRequired,
+          manualLoginAttempted: accIsManualLoginAttempted,
           startTime: accTiming.startTime,
           endTime: accTiming.endTime,
           duration: accTiming.duration,
@@ -1010,8 +1015,7 @@ async function main() {
       let multiEvent = 'success';
       if (allAccountsLocked) multiEvent = 'lock_active';
       else if (anyAccountStreakBroken) multiEvent = 'streak_break';
-      else if (anyAccountManualLoginRequired && !anyAccountSuccess)
-        multiEvent = 'manual_login_required';
+      else if (anyAccountManualLoginRequired) multiEvent = 'manual_login_required';
       else if (anyAccount2FARequired && !anyAccountSuccess) multiEvent = '2fa_required';
       else if (anyAccountRiskControl && !anyAccountSuccess) multiEvent = 'risk_blocked';
       else if (anyAccountCaptchaRequired && !anyAccountSuccess) multiEvent = 'captcha_required';
@@ -1069,6 +1073,16 @@ async function main() {
           report: multiPayload
         });
         await gracefulExit(4);
+      }
+      // Intervenção manual (gate/manual abortado) nunca deve ser retentada pelo
+      // run_all.sh (que só retenta exit 1). Exit 7 sinaliza ao operador sem loop.
+      if (anyAccountManualLoginRequired) {
+        await sendHeartbeat('fail', {
+          config,
+          error: new Error('Intervenção manual necessária para concluir o login'),
+          report: multiPayload
+        });
+        await gracefulExit(7);
       }
       if (anyAccount2FARequired && !anyAccountSuccess) {
         await sendHeartbeat('fail', {
