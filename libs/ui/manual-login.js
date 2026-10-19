@@ -61,6 +61,21 @@ function readCookie(cookies, name) {
 }
 
 /**
+ * Verifica se a URL é a página de moedas (e não a página de login, cujo
+ * `return_url` na query também contém "coin"). Usa apenas o pathname.
+ * @param {string} rawUrl
+ * @returns {boolean}
+ */
+function isCoinPageUrl(rawUrl) {
+  try {
+    const { pathname } = new URL(String(rawUrl || ''));
+    return pathname.toLowerCase().includes('coin');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Decide whether the manual-login menu/window can be offered in this environment.
  * Requires an interactive TTY and, on Linux, a graphical display. Windows/macOS
  * desktops are assumed to have a GUI. CI is always treated as non-interactive.
@@ -304,6 +319,8 @@ async function waitForManualLogin({
     );
   }
 
+  let warnedPostLogin = false;
+
   for (;;) {
     if (page && typeof page.isClosed === 'function' && page.isClosed()) {
       throw new ManualLoginError('A janela de login foi fechada antes de concluir a autenticação.');
@@ -322,9 +339,29 @@ async function waitForManualLogin({
       const value = readCookie(cookies, name);
       return Boolean(value) && (!initialAuth[name] || value !== initialAuth[name]);
     });
-    if (authCookie && !(await isLoginPromptVisible(page))) {
+    const openPages = typeof context.pages === 'function' ? context.pages() : [];
+    const coinPageOpen = openPages.some(
+      (p) => p && typeof p.url === 'function' && isCoinPageUrl(p.url())
+    );
+    if (authCookie && (coinPageOpen || !(await isLoginPromptVisible(page)))) {
       // `hasTicket` é mantido por compatibilidade; `authCookie` diz qual sinal veio.
       return { ok: true, hasTicket: true, authCookie };
+    }
+
+    // Diagnóstico sem valores: se a página de moedas já abriu mas nenhum cookie forte
+    // novo apareceu, registra os nomes dos cookies de autenticação presentes uma vez.
+    if (coinPageOpen && !authCookie && !warnedPostLogin) {
+      warnedPostLogin = true;
+      const authCookieNames = (Array.isArray(cookies) ? cookies : [])
+        .map((c) => c && c.name)
+        .filter((name) => name && /ticket|xman|login_aliyunid|sso/i.test(name));
+      logger.warn(
+        {
+          url: page && typeof page.url === 'function' ? page.url() : '',
+          cookies: authCookieNames
+        },
+        'Janela manual: página de moedas aberta, mas nenhum cookie forte novo detectado; continuando a aguardar.'
+      );
     }
 
     const remaining = deadline - now();

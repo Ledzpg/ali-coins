@@ -362,6 +362,52 @@ test('manual-login - waitForManualLogin não aceita xman_us_t antigo que não se
   );
 });
 
+test('manual-login - waitForManualLogin aceita quando a página de moedas abriu', async () => {
+  const page = {
+    isClosed: () => false,
+    $$: async () => [{ isVisible: async () => true }]
+  };
+  let calls = 0;
+  const context = {
+    cookies: async () => {
+      calls++;
+      if (calls === 1) return [];
+      return [{ name: 'xman_us_t', value: 'xman_novo' }];
+    },
+    pages: () => [{ url: () => 'https://www.aliexpress.com/p/coin-pc-index/mycoin.html' }]
+  };
+  const result = await waitForManualLogin({
+    context,
+    page,
+    timeoutMs: 1000,
+    sleep: async () => {}
+  });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.authCookie, 'xman_us_t');
+});
+
+test('manual-login - waitForManualLogin não confunde return_url com a página de moedas', async () => {
+  const page = {
+    isClosed: () => false,
+    $$: async () => [{ isVisible: async () => true }],
+    url: () =>
+      'https://www.aliexpress.com/p/ug-login-page/login.html?return_url=https%3A%2F%2Fwww.aliexpress.com%2Fp%2Fcoin-pc-index%2Fmycoin.html'
+  };
+  let calls = 0;
+  const context = {
+    cookies: async () => {
+      calls++;
+      if (calls === 1) return [];
+      return [{ name: 'xman_us_t', value: 'xman_novo' }];
+    },
+    pages: () => [page]
+  };
+  await assert.rejects(
+    waitForManualLogin({ context, page, timeoutMs: 0, now: () => 0 }),
+    ManualLoginTimeoutError
+  );
+});
+
 test('manual-login - waitForManualLogin não aceita ticket antigo com senha ainda visível', async () => {
   const page = {
     isClosed: () => false,
