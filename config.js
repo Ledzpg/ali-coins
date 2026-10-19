@@ -113,6 +113,25 @@ const configSchema = z
         return val !== undefined ? Boolean(val) : true;
       }, z.boolean())
       .default(true),
+    // Login manual opcional em janela visível (2.0.0):
+    // - auto: oferece o menu somente se o login for necessário/bloqueado e houver GUI+TTY
+    // - never: 100% headless, nunca pergunta nem abre janela
+    // - always: ao precisar de login, abre a janela direto (sem menu)
+    MANUAL_LOGIN: z
+      .preprocess(
+        (val) => {
+          if (typeof val !== 'string') return val;
+          const trimmed = val.trim().toLowerCase();
+          // Linha vazia no credentials.env equivale a não definir (padrão auto).
+          return trimmed === '' ? undefined : trimmed;
+        },
+        z.enum(['auto', 'never', 'always'])
+      )
+      .default('auto'),
+    // Tempo para o operador escolher 1/2 no menu (padrão 60s; timeout = opção headless).
+    MANUAL_LOGIN_PROMPT_TIMEOUT_MS: positiveInt(60000),
+    // Tempo máximo para concluir o login na janela visível (padrão 15min).
+    MANUAL_LOGIN_TIMEOUT_MS: positiveInt(15 * 60 * 1000),
     LOG_LEVEL: z.preprocess(
       (val) => (typeof val === 'string' ? val.trim().toLowerCase() : val),
       z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info')
@@ -457,6 +476,14 @@ function createCliProgram() {
     .option('--notify', 'Ativa notificações via Telegram (sobrescreve TELEGRAM_ENABLED)')
     .option('--no-notify', 'Desativa notificações via Telegram')
     .option(
+      '--manual-login',
+      'Abre uma janela para login manual quando necessário (equivale a MANUAL_LOGIN=always)'
+    )
+    .option(
+      '--no-manual-login',
+      'Nunca oferece login manual; mantém 100% headless (equivale a MANUAL_LOGIN=never)'
+    )
+    .option(
       '--heartbeat',
       'Ativa envio de heartbeat / dead man switch (sobrescreve HEARTBEAT_ENABLED)'
     )
@@ -498,6 +525,7 @@ Códigos de Saída (Exit Codes):
   4  Streak Quebrado (sequência de check-in foi interrompida)
   5  2FA Não-Interativo (solicitação de 2FA em ambiente sem TTY)
   6  Falha Global Não Tratada (uncaughtException / unhandledRejection)
+  7  Intervenção Manual Necessária (login em janela não concluído; sem retry automático)
 `
     );
 
@@ -567,6 +595,23 @@ function isHeartbeat(argv = process.argv) {
   return null;
 }
 
+/**
+ * Resolve o override de login manual vindo da CLI.
+ * @param {string[]} [argv=process.argv]
+ * @returns {boolean|null} true=--manual-login, false=--no-manual-login, null=sem flag
+ */
+function isManualLogin(argv = process.argv) {
+  try {
+    const opts = parseCliOptions(argv);
+    if (typeof opts.manualLogin === 'boolean') {
+      return opts.manualLogin;
+    }
+  } catch {}
+  if (argv.includes('--no-manual-login')) return false;
+  if (argv.includes('--manual-login')) return true;
+  return null;
+}
+
 function isShowToken() {
   return process.argv.includes('--show-token');
 }
@@ -624,6 +669,7 @@ function checkAndDisplayHelp(argv = process.argv) {
 function loadConfig(requireCredentials = true, argv = process.argv) {
   const notifyOverride = isNotify(argv);
   const heartbeatOverride = isHeartbeat(argv);
+  const manualLoginOverride = isManualLogin(argv);
   const rawHeartbeatUrl = process.env.HEARTBEAT_URL ? String(process.env.HEARTBEAT_URL).trim() : '';
   const rawHeartbeatEnabled =
     heartbeatOverride !== null
@@ -641,6 +687,14 @@ function loadConfig(requireCredentials = true, argv = process.argv) {
     ENCRYPT_LOCAL_SESSION: process.env.ENCRYPT_LOCAL_SESSION,
     ALLOW_MEDIA: process.env.ALLOW_MEDIA,
     HEADLESS: process.env.HEADLESS,
+    MANUAL_LOGIN:
+      manualLoginOverride !== null
+        ? manualLoginOverride
+          ? 'always'
+          : 'never'
+        : process.env.MANUAL_LOGIN,
+    MANUAL_LOGIN_PROMPT_TIMEOUT_MS: process.env.MANUAL_LOGIN_PROMPT_TIMEOUT_MS,
+    MANUAL_LOGIN_TIMEOUT_MS: process.env.MANUAL_LOGIN_TIMEOUT_MS,
     LOG_LEVEL: process.env.LOG_LEVEL,
     NO_SANDBOX: process.env.NO_SANDBOX,
     NAV_TIMEOUT: process.env.NAV_TIMEOUT,
@@ -1063,6 +1117,7 @@ async function handleDryRun() {
       }
       logger.info(` • Bloqueio de mídia (ALLOW_MEDIA): ${cfg.ALLOW_MEDIA}`);
       logger.info(` • Modo Headless: ${cfg.HEADLESS}`);
+      logger.info(` • Login manual em janela (MANUAL_LOGIN): ${cfg.MANUAL_LOGIN}`);
       logger.info(` • Nível de Log: ${cfg.LOG_LEVEL}`);
       logger.info(
         ` • Cooldown pós-captcha (CAPTCHA_COOLDOWN_HOURS): ${
@@ -1137,6 +1192,7 @@ module.exports = {
   isJson,
   isNotify,
   isHeartbeat,
+  isManualLogin,
   isShowToken,
   isAll,
   getAccountArg,
