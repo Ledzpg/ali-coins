@@ -7,9 +7,49 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Unreleased]
 
-> Alterações destinadas às próximas versões (1.0.x / 1.1.0) devem ser registradas aqui e
-> migradas para a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo
-> completo está em [RELEASING.md](RELEASING.md).
+> Alterações destinadas às próximas versões devem ser registradas aqui e migradas para
+> a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo completo está em
+> [RELEASING.md](RELEASING.md).
+
+## [2.0.0] - 2026-10-19
+
+### Adicionado
+
+- **Login manual opcional em janela (`libs/ui/manual-login.js`, `collect.js`):** quando o
+  login é necessário (sem sessão válida, sessão rejeitada/reautenticação, cooldown de
+  captcha ou bloqueio RGV587) e há TTY + interface gráfica, o bot oferece um menu com duas
+  opções: continuar 100% headless (padrão) ou abrir uma janela visível para o operador
+  resolver login/captcha/2FA. Ao detectar o cookie forte `login_aliyunid_ticket`, a sessão
+  é salva com `freshLogin`, a janela temporária é fechada e o fluxo retoma em headless.
+  O menu também é oferecido após uma falha anti-bot no login automático, sem burlar captcha.
+- **Configuração e CLI:** `MANUAL_LOGIN=auto|never|always` (padrão `auto`),
+  `MANUAL_LOGIN_PROMPT_TIMEOUT_MS` (60s) e `MANUAL_LOGIN_TIMEOUT_MS` (15min), além das flags
+  `--manual-login` (equivale a `always`) e `--no-manual-login` (equivale a `never`).
+  A detecção de GUI cobre Windows/macOS e Linux com `DISPLAY`/`WAYLAND_DISPLAY`; em cron,
+  Docker, CI ou SSH sem display nada é perguntado (comportamento 1.x preservado).
+- **Exit code 7 e notificação de intervenção manual:** RGV587 detectado no login automático,
+  janela fechada/timeout ou gate manual sem renovação encerram com código 7 (sem retry pelo
+  `run_all.sh`) e notificam `manual_login_required`, distinguindo falha da tentativa manual
+  do gate remoto. Vale para `all.js`, `collect.js` e `do_tasks.js` avulsos.
+
+### Corrigido
+
+- **`saveSession(..., { freshLogin: true })` limpa todo o estado anti-bot
+  (`libs/session.js`):** além de `lastCaptchaAt` e dos marcadores de sessão importada,
+  remove `captchaCooldownHours`, `captchaRiskControl` e `captchaRequireManualLogin`. Antes,
+  um login manual bem-sucedido mantinha o gate/cooldown de 48h do RGV587 ativo.
+- **Sessão inválida não desarma mais o gate (`libs/session.js`):** `validateAndRefresh`
+  remove a sessão expirada preservando os campos anti-bot do `session_meta.json`
+  (`clearSession({ preserveAntiBotMeta: true })`), em vez de apagar o meta inteiro e
+  reabrir o login automático na execução seguinte.
+
+### Testes
+
+- Novos `tests/manual_login.test.js` (detecção TTY/GUI, menu/timeout, espera do ticket,
+  reaproveitamento da janela, salvamento e fechamento) e casos em `tests/config.test.js`,
+  `tests/session.test.js` e `tests/captcha_cooldown.test.js` (config/CLI, limpeza total do
+  freshLogin, preservação do gate, notificação com tentativa manual). Suíte completa verde;
+  lint/format limpos.
 
 ## [1.7.4] - 2026-10-13
 
