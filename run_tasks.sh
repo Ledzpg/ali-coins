@@ -27,6 +27,9 @@ export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=$_ALI_HEAP_MB}"
 # Cache de bytecode V8 (Node 22+): acelera o arranque; pasta isolada por UID do usuario.
 export NODE_COMPILE_CACHE="${NODE_COMPILE_CACHE:-/tmp/ali-coins-compile-cache-$UID}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+  export PATH="$HOME/.local/bin:$PATH"
+fi
 if [ "$(uname)" = "Linux" ] && [ -d "$SCRIPT_DIR/libs/extracted/usr/lib/x86_64-linux-gnu" ]; then
   export LD_LIBRARY_PATH="$SCRIPT_DIR/libs/extracted/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 fi
