@@ -11,6 +11,24 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 > a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo completo está em
 > [RELEASING.md](RELEASING.md).
 
+## [1.7.1-v2] - 2026-10-20
+
+> **Release comemorativa.** Código idêntico à tag `v2.0.0`; republicada com a numeração
+> histórica `1.7.1-v2` a pedido do operador. É publicada como **pré-release** e **não**
+> substitui a `2.0.0` como latest.
+
+### Adicionado
+
+- Nenhuma alteração de código em relação à `v2.0.0`: esta edição comemorativa inclui o
+  login manual em janela, o exit code 7, as correções de sessão/anti-bot e o heap
+  adaptativo presentes na `2.0.0`.
+
+### Notas
+
+- Base: tag `v2.0.0` (commit `9647349`).
+- Tag: `v1.7.1-v2` (pré-release).
+- Publicada em 2026-10-20.
+
 ## [2.0.0] - 2026-10-19
 
 ### Adicionado
