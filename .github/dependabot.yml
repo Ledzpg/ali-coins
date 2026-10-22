@@ -11,3 +11,9 @@ updates:
     schedule:
       interval: 'weekly'
     open-pull-requests-limit: 10
+    # Agrupa init+analyze do CodeQL no mesmo PR: bumps separados deixam as duas
+    # versões diferentes no workflow e o check 'CodeQL Security Analysis' falha.
+    groups:
+      codeql-action:
+        patterns:
+          - 'github/codeql-action*'
