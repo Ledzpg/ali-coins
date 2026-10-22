@@ -11,6 +11,42 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 > a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo completo está em
 > [RELEASING.md](RELEASING.md).
 
+## [2.1.0] - 2026-10-22
+
+### Corrigido
+
+- **Painel "Ganhe mais moedas" no layout inline `aecoin-*` (`libs/selectors.js`,
+  `libs/tasks/verifier.js`, `libs/tasks/state.js`):** em 20/10/2026 o AliExpress
+  substituiu a gaveta `.e2e_task` por uma lista renderizada inline (CSS Modules
+  `aecoin-*`); a gaveta antiga virou um componente morto (cabeçalho sem botão e conteúdo
+  preso no loading) e as tarefas passavam a vir vazias (`tasks: null` /
+  `tasksCoinsGained: 0`). O bot agora:
+  - detecta a lista inline em `openTaskDrawer`, sem tentar abrir a gaveta morta;
+  - extrai título, botão, recompensa, status de rodadas (`aecoin-progress-*`) e
+    `data-groupid` nos dois layouts, com seletores `[class*="prefixo-"]` imunes ao hash
+    de build do CSS Modules;
+  - classifica `aecoin-btnGo-*` como acionável — no layout novo o texto do botão é a
+    recompensa (`+N`), não o rótulo `GO`/`IR` — e classes `btnCollect`/`btnReceive`/…
+    como resgatáveis, preservando o comportamento antigo (`.e2e_*`) como fallback.
+- **`findNextPendingTask` reconhece `aecoin-btnGo-*` (`libs/tasks/state.js`):** além de
+  `isActionable`/`GO`/`IR`, o `btnClass` do layout novo também marca a tarefa como
+  executável (defesa em profundidade para variações de renderização).
+
+### Testes
+
+- Novos casos em `tests/tasks.test.js` (detecção inline + extração `aecoin-*`) e
+  fixture/smoke do painel novo em `tests/selectors.smoke.test.js`.
+
+### Notas
+
+- Validação ao vivo (22/10/2026): painel inline detectado, tarefas lidas e executadas
+  (check-in diário e tarefas de navegação/scroll concluídas; a lista dinâmica expandiu
+  durante a execução).
+- "Browse surprise items" pode não contabilizar quando o clique cai no `adclick.html`
+  sem abrir o detalhe do produto. É um comportamento do feed de surpresas, separado do
+  painel, já coberto pelos fallbacks/late-progress do bot; acompanhar à parte se voltar
+  a ocorrer.
+
 ## [2.0.0] - 2026-10-19
 
 ### Adicionado
