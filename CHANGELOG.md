@@ -11,6 +11,34 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 > a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo completo está em
 > [RELEASING.md](RELEASING.md).
 
+## [1.7.1-v3] - 2026-10-22
+
+> **Release comemorativa (pré-release).** Edição especial para **não deixar a versão
+> lendária 1.7.1 morrer**: o código é **inteiramente baseado na tag `v2.1.0`** — só mudam
+> o número de versão e este registro. Publicada como **pré-release**; a `2.1.0` continua
+> sendo a versão estável/latest.
+
+### Por que existe
+
+A linha **1.7.1** foi uma das mais marcantes do projeto: trouxe o atalho da leitura
+desktop no check-in, o reúso da página mobile entre check-in e tarefas e um build Docker
+mais enxuto. Esta edição comemorativa mantém o nome vivo, já com todo o conteúdo da
+**2.1.0** — incluindo o suporte à nova página de coleta de moedas do AliExpress (painel
+de tarefas inline `aecoin-*`).
+
+### Conteúdo
+
+- Código idêntico ao da tag `v2.1.0` (commit `d379496`): login manual em janela, exit
+  code 7, correções de sessão/anti-bot, heap adaptativo e o fix do painel de tarefas
+  inline.
+- Nenhuma alteração funcional em relação à `2.1.0`.
+
+### Notas
+
+- Versão: `1.7.1-v3` (pré-release de `1.7.1`).
+- Base: tag `v2.1.0` (commit `d379496`).
+- Publicada em 2026-10-22.
+
 ## [2.1.0] - 2026-10-22
 
 ### Corrigido
