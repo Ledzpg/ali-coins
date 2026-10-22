@@ -13,6 +13,15 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [2.1.0] - 2026-10-22
 
+### Por que esta release
+
+O principal motivo da 2.1.0 é a **mudança da página de coleta de moedas do AliExpress**
+(out/2026): o painel "Ganhe mais moedas" deixou de ser uma gaveta (`.e2e_task`) e passou
+a renderizar a lista de tarefas **inline** com classes CSS Modules `aecoin-*`. Sem esse
+ajuste, as versões até a 2.0.0 não conseguiam mais ler as tarefas (o bot tentava abrir a
+gaveta 5 vezes e falhava com "Painel 'Ganhe mais moedas' inacessível") e o dia fechava
+sem as moedas das tarefas, mesmo com o check-in diário funcionando.
+
 ### Corrigido
 
 - **Painel "Ganhe mais moedas" no layout inline `aecoin-*` (`libs/selectors.js`,
