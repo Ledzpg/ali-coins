@@ -13,6 +13,13 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ### Corrigido
 
+- **Sessão expirada não era detectada nas telas de login novas (out/2026):** com a sessão
+  invalidada no servidor, o coin-index mobile passou a mostrar só "COINS" + botão
+  "Log in" (mesma URL, sem campos) e o `mycoin.html` desktop a tela "Register/Sign in".
+  Nenhuma das duas era reconhecida: a execução falhava com "não foi possível obter streak
+  e saldo" (`attemptedLogin: false`, `loginPromptDetected: false`) e o `--manual-login`
+  nunca era oferecido. `shouldAttemptLogin()` agora trata a portaria mobile
+  (`isLoginGateText()`) e `isLoginPromptText()` reconhece a tela desktop.
 - **`run_all.sh` desligava o `--manual-login`:** o Node roda em background (para repassar
   TERM/INT) e, sem job control, o bash liga o stdin de comandos assíncronos a `/dev/null`.
   `isManualLoginAvailable()` via stdin não-TTY e mantinha o login headless mesmo num
