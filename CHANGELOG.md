@@ -11,6 +11,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 > a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo completo está em
 > [RELEASING.md](RELEASING.md).
 
+## [2.1.1] - 2026-10-24
+
 ### Corrigido
 
 - **Sessão expirada não era detectada nas telas de login novas (out/2026):** com a sessão
