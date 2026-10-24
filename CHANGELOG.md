@@ -11,12 +11,38 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 > a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo completo está em
 > [RELEASING.md](RELEASING.md).
 
+## [2.2.0] - 2026-10-24
+
+### Adicionado
+
+- **Suporte multilíngue PT-BR/EN em toda a aplicação.** O idioma padrão continua sendo
+  português; `APP_LANGUAGE=en` no `credentials.env` (ou `--lang en` na CLI) ativa o
+  inglês. A configuração também aceita aliases (`pt`, `pt-BR`, `en-US`, `english`,
+  `português`) e é validada no boot.
+- **Logs e relatórios traduzidos:** catálogo PT → EN cobre todas as mensagens estáticas
+  de `logger` (teste automatizado de cobertura), além de valores dinâmicos (status de
+  tarefas, streaks, unidades e flags), relatórios consolidados, login manual, mensagens
+  de erro de configuração, ajuda da CLI e notificações do Telegram (incluindo HTML).
+- **Scripts auxiliares bilíngues em todos os sistemas operacionais:** execução e
+  instalação em Linux/macOS (`.sh`), Windows CMD (`.bat`) e PowerShell (`.ps1`), além de
+  `generate_secret.*`, `docker-run.example.sh` e `push_to_github.sh`. Os scripts detectam
+  `APP_LANGUAGE`, `--lang` e o `credentials.env` antes de imprimir mensagens.
+
 ### Documentação
 
 - **Documentação completa em inglês e espanhol:** `README.en.md`/`README.es.md`,
   `INSTALL_LINUX/INSTALL_WINDOWS/INSTALL_MACOS.en.md/.es.md` e
   `CLOUD_SESSIONS.en.md/.es.md`, com seletor de idiomas no topo de cada documento e
   links internos/âncoras preservados. O português continua sendo a fonte canônica.
+- `README.md`, `README.en.md`, `README.es.md` e `credentials.env.example` documentam
+  `APP_LANGUAGE` e `--lang`.
+
+### Testes
+
+- Novo `tests/i18n.test.js`: normalização de idioma, tradução de mensagens/templates,
+  menu de login, notificações e **cobertura de 100% das mensagens estáticas de logger**
+  pelo catálogo PT → EN.
+- Suíte completa: 500 testes passando; lint e Prettier verdes.
 
 ## [2.1.1] - 2026-10-24
 
