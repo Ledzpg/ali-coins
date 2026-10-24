@@ -12,6 +12,7 @@ const { maskUser } = require('../config');
 const { computeCheckinCoinsGained, computeTasksCoinsGained } = require('./report');
 const logger = require('../logger');
 const { sanitizeSensitiveQueryParams } = require('../logger');
+const { translateNotificationText } = require('./i18n');
 
 const TELEGRAM_MAX_LENGTH = 4096;
 const TELEGRAM_SAFE_LIMIT = 3900;
@@ -447,7 +448,7 @@ function buildNextAccountLine(report) {
  * @param {string} [params.hostname]
  * @returns {string} Mensagem formatada em HTML para Telegram
  */
-function buildMessage({
+function buildMessageInternal({
   report = null,
   event = 'success',
   error = null,
@@ -952,6 +953,18 @@ function buildMessage({
     `📅 <b>Data:</b> ${now}`,
     `🖥️ <b>Host:</b> <code>${safeHost}</code>`
   ].join('\n');
+}
+
+/**
+ * Constrói a mensagem e aplica a tradução PT/EN (mensagens customizadas são
+ * preservadas como o operador as forneceu).
+ * @param {object} [params]
+ * @returns {string}
+ */
+function buildMessage(params = {}) {
+  const message = buildMessageInternal(params);
+  if (params && params.customMessage) return message;
+  return translateNotificationText(message);
 }
 
 /**

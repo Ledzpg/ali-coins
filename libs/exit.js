@@ -4,6 +4,8 @@
  * isso pode truncar relatórios grandes no limite do buffer (~64KB).
  */
 
+const { isEnglish } = require('./i18n');
+
 // Teto máximo de espera pelo flush: nunca deixa o encerramento travar por um stream entupido
 const FLUSH_TIMEOUT_MS = 5000;
 
@@ -52,7 +54,9 @@ async function flushStdStreams() {
     // Aviso explícito: o teto foi atingido e parte da saída pode ter sido truncada.
     try {
       process.stderr.write(
-        `[aviso] timeout de ${FLUSH_TIMEOUT_MS}ms ao liberar stdout/stderr; saída pode ter sido truncada.\n`
+        isEnglish()
+          ? `[warning] ${FLUSH_TIMEOUT_MS}ms timeout flushing stdout/stderr; output may have been truncated.\n`
+          : `[aviso] timeout de ${FLUSH_TIMEOUT_MS}ms ao liberar stdout/stderr; saída pode ter sido truncada.\n`
       );
     } catch {
       // stderr indisponível: nada a fazer

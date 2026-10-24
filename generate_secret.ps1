@@ -15,8 +15,12 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
+# Mensagens no idioma configurado (PT padrao, EN opcional).
+. (Join-Path $ScriptDir "libs/i18n/scripts.ps1")
+Initialize-AliLanguage -Root $ScriptDir -Arguments $args
+
 Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host "   Gerador de Chave de Criptografia AES-256 (SESSION_SECRET)         " -ForegroundColor Cyan
+Write-AliMsg "   Gerador de Chave de Criptografia AES-256 (SESSION_SECRET)         " "   AES-256 Encryption Key Generator (SESSION_SECRET)                " -ForegroundColor Cyan
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -51,7 +55,9 @@ if (Get-Command openssl -ErrorAction SilentlyContinue) {
 if (-not $secret -and (Get-Command node -ErrorAction SilentlyContinue)) {
     try {
         $secret = (& node -e "console.log(require('crypto').randomBytes(32).toString('base64'))" 2>$null).Trim()
-        if ($secret) { $method = "Node.js Crypto nativo (sem necessidade de instalar OpenSSL)" }
+        if ($secret) {
+            $method = if ($script:AliLang -eq 'en') { "Native Node.js Crypto (no need to install OpenSSL)" } else { "Node.js Crypto nativo (sem necessidade de instalar OpenSSL)" }
+        }
     } catch {}
 }
 
@@ -62,22 +68,22 @@ if (-not $secret) {
         $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
         $rng.GetBytes($bytes)
         $secret = [Convert]::ToBase64String($bytes)
-        $method = "PowerShell .NET Cryptography nativo"
+        $method = if ($script:AliLang -eq 'en') { "Native PowerShell .NET Cryptography" } else { "PowerShell .NET Cryptography nativo" }
     } catch {}
 }
 
 if ($secret) {
-    Write-Host "[Metodo utilizado: $method]" -ForegroundColor Green
+    Write-AliMsg "[Metodo utilizado: $method]" "[Method used: $method]" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Chave de 32 bytes (Base64) gerada com sucesso:" -ForegroundColor Yellow
+    Write-AliMsg "Chave de 32 bytes (Base64) gerada com sucesso:" "32-byte key (Base64) generated successfully:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "   $secret" -ForegroundColor White
     Write-Host ""
-    Write-Host "Copie o valor acima e cole na variavel SESSION_SECRET do arquivo credentials.env:" -ForegroundColor Cyan
+    Write-AliMsg "Copie o valor acima e cole na variavel SESSION_SECRET do arquivo credentials.env:" "Copy the value above and paste it into the SESSION_SECRET variable in credentials.env:" -ForegroundColor Cyan
     Write-Host "   SESSION_SECRET=`"$secret`"" -ForegroundColor Cyan
 } else {
-    Write-Host "[ERRO] Nao foi possivel gerar a chave automaticamente." -ForegroundColor Red
-    Write-Host "Certifique-se de ter o Node.js 22 ou OpenSSL instalado."
+    Write-AliMsg "[ERRO] Nao foi possivel gerar a chave automaticamente." "[ERROR] Could not generate the key automatically." -ForegroundColor Red
+    Write-AliMsg "Certifique-se de ter o Node.js 22 ou OpenSSL instalado." "Make sure Node.js 22 or OpenSSL is installed."
 }
 
 Write-Host ""

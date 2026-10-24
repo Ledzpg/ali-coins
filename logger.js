@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 const pino = require('pino');
+const { translateMessage, isEnglish } = require('./libs/i18n');
 
 // Carregar credentials.env antes de ler LOG_LEVEL para garantir precedência
 const credentialsEnvPath = path.join(__dirname, 'credentials.env');
@@ -212,7 +213,9 @@ if (!PINO_LEVELS.has(requestedLevel)) {
   // O pino lançaria no require (antes do ConfigValidationError): avisa e usa 'info';
   // o schema do config continua validando o valor para o usuário.
   process.stderr.write(
-    `[logger] LOG_LEVEL inválido ("${requestedLevel}"); usando "info". Valores aceitos: ${[...PINO_LEVELS].join(', ')}.\n`
+    isEnglish()
+      ? `[logger] Invalid LOG_LEVEL ("${requestedLevel}"); using "info". Accepted values: ${[...PINO_LEVELS].join(', ')}.\n`
+      : `[logger] LOG_LEVEL inválido ("${requestedLevel}"); usando "info". Valores aceitos: ${[...PINO_LEVELS].join(', ')}.\n`
   );
 }
 
@@ -230,6 +233,42 @@ const logger = pino(
             inputArgs[i] = sanitizeSensitiveQueryParams(inputArgs[i]);
           }
         }
+        // `logger.error(err)` usa err.message como msg. Clona o Error para não
+        // mutar a instância do chamador e preserva o stack original.
+        if (inputArgs[0] instanceof Error) {
+          const original = inputArgs[0];
+          const translatedMessage = translateMessage(original.message);
+          if (translatedMessage !== original.message) {
+            const translatedError = new Error(translatedMessage);
+            translatedError.name = original.name;
+            translatedError.stack = original.stack;
+            Object.assign(translatedError, original);
+            translatedError.message = translatedMessage;
+            inputArgs[0] = translatedError;
+          }
+        }
+        // O pino adiciona `msg` ao registro DEPOIS de formatters.log, então a
+        // tradução da mensagem precisa ocorrer aqui. Só traduz o argumento que
+        // representa a mensagem (string inicial ou string após o objeto de contexto),
+        // nunca valores de dados/interpolação.
+        let messageIndex = -1;
+        if (typeof inputArgs[0] === 'string') {
+          messageIndex = 0;
+        } else if (
+          inputArgs[0] &&
+          typeof inputArgs[0] === 'object' &&
+          typeof inputArgs[1] === 'string'
+        ) {
+          messageIndex = 1;
+        }
+        if (messageIndex !== -1) {
+          inputArgs[messageIndex] = translateMessage(inputArgs[messageIndex]);
+        }
+        if (inputArgs[0] && typeof inputArgs[0] === 'object' && inputArgs[0] !== null) {
+          if (typeof inputArgs[0].msg === 'string') {
+            inputArgs[0] = { ...inputArgs[0], msg: translateMessage(inputArgs[0].msg) };
+          }
+        }
         return method.apply(this, inputArgs);
       }
     },
@@ -238,7 +277,7 @@ const logger = pino(
         if (!object) return object;
         const sanitized = { ...object };
         if (typeof sanitized.msg === 'string') {
-          sanitized.msg = sanitizeSensitiveQueryParams(sanitized.msg);
+          sanitized.msg = translateMessage(sanitizeSensitiveQueryParams(sanitized.msg));
         }
         if (sanitized.err && typeof sanitized.err.message === 'string') {
           // Preserva stack/type: o spread de um Error copia só propriedades enumeráveis
@@ -246,7 +285,7 @@ const logger = pino(
           const origErr = sanitized.err;
           sanitized.err = {
             type: origErr.name || origErr.type || 'Error',
-            message: sanitizeSensitiveQueryParams(origErr.message),
+            message: translateMessage(sanitizeSensitiveQueryParams(origErr.message)),
             stack:
               typeof origErr.stack === 'string'
                 ? sanitizeSensitiveQueryParams(origErr.stack)
@@ -255,7 +294,7 @@ const logger = pino(
           };
         }
         if (typeof sanitized.err === 'string') {
-          sanitized.err = sanitizeSensitiveQueryParams(sanitized.err);
+          sanitized.err = translateMessage(sanitizeSensitiveQueryParams(sanitized.err));
         }
         if (isFlatLogRecord(object)) {
           for (const key of Object.keys(sanitized)) {

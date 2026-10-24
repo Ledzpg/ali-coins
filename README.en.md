@@ -50,6 +50,7 @@ The CLI supports the following unified flags (via `commander`):
 | `-f, --force`        | Forces execution: overrides an active lockfile **and ignores the post-captcha cooldown** (attempts login even during the pause). |
 | `--no-delay`         | Does not apply the random initial delay (`START_DELAY_MIN_MS`/`START_DELAY_MAX_MS`) in this run (manual/retry runs).             |
 | `--json`             | Emits the execution report, diagnostics, and validation in pure JSON format.                                                     |
+| `--lang <pt-BR\|en>` | Interface and log language: `pt-BR` (default) or `en` (English). Can also be set via `APP_LANGUAGE`.                             |
 | `--notify`           | Forces Telegram notifications for the current run.                                                                               |
 | `--no-notify`        | Disables Telegram notifications for the current run.                                                                             |
 | `--manual-login`     | Opens a manual login window when needed (equivalent to `MANUAL_LOGIN=always`).                                                   |
@@ -142,6 +143,10 @@ HEADLESS=true
 
 # Structured log level (trace, debug, info, warn, error, fatal, silent) (default: info)
 LOG_LEVEL=info
+
+# Interface, log, report, notification, and helper-script language
+# pt-BR = Portuguese (default) | en = English
+APP_LANGUAGE=pt-BR
 
 # Optional timeout and limit settings
 # NAV_TIMEOUT=35000

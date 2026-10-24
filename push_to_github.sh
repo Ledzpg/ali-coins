@@ -2,10 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/libs/i18n/scripts.sh"
 ENV_FILE="$SCRIPT_DIR/github_token.env"
 
 if [ ! -f "$ENV_FILE" ]; then
-  echo "ERRO: Arquivo github_token.env não encontrado."
+  ali_msg "ERRO: Arquivo github_token.env não encontrado." "ERROR: github_token.env file not found."
   exit 1
 fi
 
@@ -35,7 +36,7 @@ while IFS='=' read -r key val || [ -n "$key" ]; do
 done < "$ENV_FILE"
 
 if [ -z "$GITHUB_USER" ] || [ -z "$GITHUB_TOKEN" ]; then
-  echo "ERRO: GITHUB_USER ou GITHUB_TOKEN vazios no github_token.env."
+  ali_msg "ERRO: GITHUB_USER ou GITHUB_TOKEN vazios no github_token.env." "ERROR: GITHUB_USER or GITHUB_TOKEN is empty in github_token.env."
   exit 2
 fi
 
@@ -49,7 +50,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Configurando repositório remoto para: ${GITHUB_USER}/${REPO_NAME} ..."
+ali_msg "Configurando repositório remoto para: ${GITHUB_USER}/${REPO_NAME} ..." "Configuring remote repository for: ${GITHUB_USER}/${REPO_NAME} ..."
 
 if git remote | grep -q "^origin$"; then
   git remote set-url origin "$PUBLIC_REMOTE"
@@ -65,15 +66,15 @@ export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=http.extraHeader
 export GIT_CONFIG_VALUE_0="Authorization: Basic ${BASIC_AUTH}"
 
-echo "Enviando branch 'main'..."
+ali_msg "Enviando branch 'main'..." "Pushing branch 'main'..."
 # NUNCA repassar "$@" aqui: um --force destinado às tags forçaria a main por acidente.
 git push -u origin main
 
-echo "Enviando tags de release..."
+ali_msg "Enviando tags de release..." "Pushing release tags..."
 git push origin --tags "$@"
 
 echo ""
 echo "=========================================================="
-echo " Projeto enviado com sucesso para o GitHub!"
+ali_msg " Projeto enviado com sucesso para o GitHub!" " Project pushed successfully to GitHub!"
 echo " URL: https://github.com/${GITHUB_USER}/${REPO_NAME}"
 echo "=========================================================="

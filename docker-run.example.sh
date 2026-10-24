@@ -37,6 +37,14 @@ LOG="$DIR/cron.log"
 MEM_LIMIT="${ALI_COINS_MEM:-768m}"
 MEM_SWAP="${ALI_COINS_MEM_SWAP:-1536m}"
 
+# Mensagens no idioma configurado (PT padrão, EN opcional).
+if [ -f "$DIR/libs/i18n/scripts.sh" ]; then
+  . "$DIR/libs/i18n/scripts.sh"
+else
+  ali_msg() { printf '%s\n' "$1"; }
+  ali_err() { printf '%s\n' "$1" >&2; }
+fi
+
 # Rotação simples do log: impede crescimento indefinido em VPS pequena (cron.log não é podado).
 LOG_MAX_BYTES="${ALI_COINS_LOG_MAX_BYTES:-5242880}" # 5 MB
 if [ -f "$LOG" ]; then
@@ -48,7 +56,7 @@ if [ -f "$LOG" ]; then
 fi
 
 if [ ! -f "$DIR/credentials.env" ]; then
-  echo "ERRO: $DIR/credentials.env não encontrado. Copie credentials.env.example, preencha e rode de novo." >&2
+  ali_err "ERRO: $DIR/credentials.env não encontrado. Copie credentials.env.example, preencha e rode de novo." "ERROR: $DIR/credentials.env not found. Copy credentials.env.example, fill it in and run again."
   exit 1
 fi
 mkdir -p "$DIR/scratch"
@@ -61,7 +69,7 @@ done
 [ -f "$DIR/accounts.json" ] && MOUNTS+=(-v "$DIR/accounts.json:/app/accounts.json:ro")
 
 {
-  echo "===== $(date '+%F %T %Z') inicio (args: $*) ====="
+  ali_msg "===== $(date '+%F %T %Z') inicio (args: $*) =====" "===== $(date '+%F %T %Z') start (args: $*) ====="
 
   /usr/bin/docker run --rm --name "$RUN_NAME" \
     --init \
@@ -97,8 +105,8 @@ done
 
   wait "$RUN_PID"
   EXIT=$?
-  echo "pico: mem=${PEAK_MEM_MB}MiB pids=${PEAK_PIDS} (limite ${MEM_LIMIT}/${MEM_SWAP})"
-  echo "exit=$EXIT fim: $(date '+%F %T %Z')"
+  ali_msg "pico: mem=${PEAK_MEM_MB}MiB pids=${PEAK_PIDS} (limite ${MEM_LIMIT}/${MEM_SWAP})" "peak: mem=${PEAK_MEM_MB}MiB pids=${PEAK_PIDS} (limit ${MEM_LIMIT}/${MEM_SWAP})"
+  ali_msg "exit=$EXIT fim: $(date '+%F %T %Z')" "exit=$EXIT end: $(date '+%F %T %Z')"
 } >> "$LOG" 2>&1
 
 # Propaga o código de saída para o cron/monitoramento (antes era sempre 0)

@@ -27,6 +27,8 @@ export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=$_ALI_HEAP_MB}"
 # Cache de bytecode V8 (Node 22+): acelera o arranque; pasta isolada por UID do usuario.
 export NODE_COMPILE_CACHE="${NODE_COMPILE_CACHE:-/tmp/ali-coins-compile-cache-$UID}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Mensagens do próprio script no idioma configurado (PT padrão, EN opcional).
+. "$SCRIPT_DIR/libs/i18n/scripts.sh"
 if [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
   export PATH="$HOME/.local/bin:$PATH"
 fi
@@ -55,7 +57,9 @@ EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 1 ]; then
   echo ""
-  echo "[run_all.sh] Execução finalizou com erro (código 1). Aguardando 10 segundos para retentativa única..."
+  ali_msg \
+    "[run_all.sh] Execução finalizou com erro (código 1). Aguardando 10 segundos para retentativa única..." \
+    "[run_all.sh] Execution failed (code 1). Waiting 10 seconds for a single retry..."
   sleep 10
   # Retentativa não deve esperar outro sorteio do atraso inicial (START_DELAY_*).
   run_all_node "$@" --no-delay

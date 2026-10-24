@@ -13,6 +13,7 @@ const {
 } = require('./config');
 const { encryptSession, safeWriteFile, safeChmod600, validateSession } = require('./security');
 const { flushAndExit } = require('./libs/exit');
+const { t } = require('./libs/i18n');
 const logger = require('./logger');
 
 // Carregar variáveis de ambiente do credentials.env de forma silenciosa
@@ -173,7 +174,7 @@ async function exportSession(options = {}) {
   if (showToken) {
     logger.warn('⚠️  [AVISO] Exibição de token em tela solicitada via --show-token.');
     process.stdout.write(
-      `\n--- TOKEN CRIPTOGRAFADO (v3) ---\n${encryptedBlob}\n--------------------------------\n`
+      `\n--- ${t('TOKEN CRIPTOGRAFADO (v3)')} ---\n${encryptedBlob}\n--------------------------------\n`
     );
   } else {
     logger.info(

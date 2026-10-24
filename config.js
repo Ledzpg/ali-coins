@@ -8,6 +8,7 @@ const { Command } = require('commander');
 const logger = require('./logger');
 const { safeChmod600 } = require('./security');
 const { allowPrivateTargets } = require('./libs/url_guard');
+const { LANG_PT_BR, LANG_EN, resolveLanguage, setLanguage, isEnglish, t } = require('./libs/i18n');
 
 // Caminhos padrão de arquivos
 const credentialsEnvPath = path.join(__dirname, 'credentials.env');
@@ -149,6 +150,20 @@ const configSchema = z
       (val) => (typeof val === 'string' ? val.trim().toLowerCase() : val),
       z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info')
     ),
+    // Idioma da interface e dos logs. Padrão: português (pt-BR); inglês: en.
+    // Aceita aliases (pt, en-US, english, português) e é normalizado para pt-BR|en.
+    APP_LANGUAGE: z
+      .preprocess(
+        (val) => {
+          if (val === undefined || val === null) return undefined;
+          const resolved = resolveLanguage(val);
+          return resolved === null ? String(val) : resolved;
+        },
+        z.enum([LANG_PT_BR, LANG_EN], {
+          error: (iss) => `APP_LANGUAGE inválido ("${iss.input}"). Use "pt-BR" (padrão) ou "en".`
+        })
+      )
+      .default(LANG_PT_BR),
     NO_SANDBOX: z
       .preprocess((val) => {
         if (typeof val === 'string') {
@@ -472,75 +487,83 @@ class ConfigValidationError extends Error {
 function createCliProgram() {
   const program = new Command();
   const pkg = require('./package.json');
+  const helpLines = [
+    'Códigos de Saída (Exit Codes):',
+    '  0  Sucesso (novas moedas coletadas com sucesso)',
+    '  1  Falha crítica de execução ou autenticação',
+    '  2  Sem Ação / Já Coletado (check-in já realizado e sem tarefas pendentes)',
+    '  3  Lock Ativo (outra instância já em execução no host)',
+    '  4  Streak Quebrado (sequência de check-in foi interrompida)',
+    '  5  2FA Não-Interativo (solicitação de 2FA em ambiente sem TTY)',
+    '  6  Falha Global Não Tratada (uncaughtException / unhandledRejection)',
+    '  7  Intervenção Manual Necessária (login em janela não concluído; sem retry automático)'
+  ];
   program
     .name('ali-coins')
-    .description('AliExpress Coin Collector & Task Runner com Playwright')
+    .description(t('AliExpress Coin Collector & Task Runner com Playwright'))
     .version(pkg.version)
-    .option('-d, --dry-run', 'Valida credenciais e ambiente sem abrir navegador')
+    .option('-d, --dry-run', t('Valida credenciais e ambiente sem abrir navegador'))
     .option(
       '-f, --force',
-      'Força a execução: sobrescreve lockfile ativo e ignora o cooldown pós-captcha (tenta o login)'
+      t(
+        'Força a execução: sobrescreve lockfile ativo e ignora o cooldown pós-captcha (tenta o login)'
+      )
     )
     .option(
       '--no-delay',
-      'Não aplica o atraso inicial aleatório (START_DELAY_MIN_MS/MAX_MS); use em execuções manuais e retentativas'
+      t(
+        'Não aplica o atraso inicial aleatório (START_DELAY_MIN_MS/MAX_MS); use em execuções manuais e retentativas'
+      )
     )
-    .option('--json', 'Formata a saída de status e relatórios em JSON')
-    .option('--notify', 'Ativa notificações via Telegram (sobrescreve TELEGRAM_ENABLED)')
-    .option('--no-notify', 'Desativa notificações via Telegram')
+    .option('--json', t('Formata a saída de status e relatórios em JSON'))
+    .option(
+      '--lang <language>',
+      t('Idioma da interface e dos logs: pt-BR (padrão) ou en (English)')
+    )
+    .option('--notify', t('Ativa notificações via Telegram (sobrescreve TELEGRAM_ENABLED)'))
+    .option('--no-notify', t('Desativa notificações via Telegram'))
     .option(
       '--manual-login',
-      'Abre uma janela para login manual quando necessário (equivale a MANUAL_LOGIN=always)'
+      t('Abre uma janela para login manual quando necessário (equivale a MANUAL_LOGIN=always)')
     )
     .option(
       '--no-manual-login',
-      'Nunca oferece login manual; mantém 100% headless (equivale a MANUAL_LOGIN=never)'
+      t('Nunca oferece login manual; mantém 100% headless (equivale a MANUAL_LOGIN=never)')
     )
     .option(
       '--heartbeat',
-      'Ativa envio de heartbeat / dead man switch (sobrescreve HEARTBEAT_ENABLED)'
+      t('Ativa envio de heartbeat / dead man switch (sobrescreve HEARTBEAT_ENABLED)')
     )
-    .option('--no-heartbeat', 'Desativa envio de heartbeat / dead man switch')
-    .option('--show-token', 'Exibe o token criptografado gerado no terminal (export_session)')
-    .option('--from-file <path>', 'Caminho do arquivo com o token de sessão (import_session)')
+    .option('--no-heartbeat', t('Desativa envio de heartbeat / dead man switch'))
+    .option('--show-token', t('Exibe o token criptografado gerado no terminal (export_session)'))
+    .option('--from-file <path>', t('Caminho do arquivo com o token de sessão (import_session)'))
     .option(
       '--plaintext',
-      'Salva a sessão importada em texto puro sem criptografia at-rest (import_session)'
+      t('Salva a sessão importada em texto puro sem criptografia at-rest (import_session)')
     )
-    .option('--all', 'Exporta ou importa todas as contas configuradas com sessão ativa')
+    .option('--all', t('Exporta ou importa todas as contas configuradas com sessão ativa'))
     .option(
       '--account <id>',
-      'Especifica o índice (1, 2) ou e-mail da conta (export_session / import_session)'
+      t('Especifica o índice (1, 2) ou e-mail da conta (export_session / import_session)')
     )
     .option(
       '--keep-tokens',
-      'Mantém os arquivos session_token*.txt após a importação em lote (padrão: remover)'
+      t('Mantém os arquivos session_token*.txt após a importação em lote (padrão: remover)')
     )
-    .option('--migrate', 'Migra session.json legado para session.json.enc (import_session)')
+    .option('--migrate', t('Migra session.json legado para session.json.enc (import_session)'))
     .option(
       '--rotate',
-      'Re-criptografa as sessões com a nova chave SESSION_SECRET_NEW/SESSION_SECRET_OLD (export_session)'
+      t(
+        'Re-criptografa as sessões com a nova chave SESSION_SECRET_NEW/SESSION_SECRET_OLD (export_session)'
+      )
     )
     .option(
       '--new-secret-from-env <var>',
-      'Nome da variável de ambiente com a nova chave para --rotate (export_session)'
+      t('Nome da variável de ambiente com a nova chave para --rotate (export_session)')
     )
     .allowUnknownOption(true)
-    .helpOption('-h, --help', 'Exibe esta ajuda com a lista de opções')
-    .addHelpText(
-      'after',
-      `
-Códigos de Saída (Exit Codes):
-  0  Sucesso (novas moedas coletadas com sucesso)
-  1  Falha crítica de execução ou autenticação
-  2  Sem Ação / Já Coletado (check-in já realizado e sem tarefas pendentes)
-  3  Lock Ativo (outra instância já em execução no host)
-  4  Streak Quebrado (sequência de check-in foi interrompida)
-  5  2FA Não-Interativo (solicitação de 2FA em ambiente sem TTY)
-  6  Falha Global Não Tratada (uncaughtException / unhandledRejection)
-  7  Intervenção Manual Necessária (login em janela não concluído; sem retry automático)
-`
-    );
+    .helpOption('-h, --help', t('Exibe esta ajuda com a lista de opções'))
+    .addHelpText('after', `\n${helpLines.map((line) => t(line)).join('\n')}`);
 
   return program;
 }
@@ -625,6 +648,40 @@ function isManualLogin(argv = process.argv) {
   return null;
 }
 
+/**
+ * Resolve o idioma pedido via CLI (--lang <pt-BR|en>), sem depender do schema.
+ * @param {string[]} [argv=process.argv]
+ * @returns {string|null}
+ */
+function getLanguageOverride(argv = process.argv) {
+  // IMPORTANTE: faz o scan simples ANTES de chamar o Commander. Com --help, o
+  // Commander imprime a ajuda e encerra o processo, impedindo o setLanguage e
+  // fazendo o help sair sempre em português.
+  const eqArg = argv.find((arg) => arg.startsWith('--lang='));
+  if (eqArg) return eqArg.slice(eqArg.indexOf('=') + 1).trim();
+  const idx = argv.indexOf('--lang');
+  if (idx !== -1 && argv[idx + 1] && !argv[idx + 1].startsWith('-')) {
+    return argv[idx + 1].trim();
+  }
+  // Com --help/--version, não deixe o Commander imprimir/sair antes de
+  // checkAndDisplayHelp aplicar o idioma do ambiente.
+  if (
+    argv.includes('--help') ||
+    argv.includes('-h') ||
+    argv.includes('--version') ||
+    argv.includes('-V')
+  ) {
+    return null;
+  }
+  try {
+    const opts = parseCliOptions(argv);
+    if (typeof opts.lang === 'string' && opts.lang.trim()) return opts.lang.trim();
+  } catch {
+    // Commander pode falhar em argv parcial (ex.: --lang sem valor).
+  }
+  return null;
+}
+
 function isShowToken() {
   return process.argv.includes('--show-token');
 }
@@ -660,6 +717,9 @@ function getAccountArg() {
 }
 
 function checkAndDisplayHelp(argv = process.argv) {
+  setLanguage(
+    getLanguageOverride(argv) || process.env.APP_LANGUAGE || process.env.BOT_LANGUAGE || LANG_PT_BR
+  );
   if (argv.includes('--help') || argv.includes('-h')) {
     const program = createCliProgram();
     program.outputHelp();
@@ -674,12 +734,38 @@ function checkAndDisplayHelp(argv = process.argv) {
 }
 
 /**
+ * Traduz mensagens de validação do Zod (estáticas via ui.js e dinâmicas via padrões).
+ * @param {string} message
+ * @returns {string}
+ */
+function translateConfigIssue(message) {
+  if (!message || !isEnglish()) return message;
+  const translated = t(message);
+  if (translated !== message) return translated;
+  return translated
+    .replace(
+      /^([A-Z_]+) deve ser <= (\d+) \(24 h\)\. Lembre que o valor é em milissegundos\.$/,
+      '$1 must be <= $2 (24 h). Remember the value is in milliseconds.'
+    )
+    .replace(
+      /^APP_LANGUAGE inválido \("(.+)"\)\. Use "pt-BR" \(padrão\) ou "en"\.$/,
+      'Invalid APP_LANGUAGE ("$1"). Use "pt-BR" (default) or "en".'
+    );
+}
+
+/**
  * Carrega e valida configurações a partir das variáveis de ambiente
  * @param {boolean} [requireCredentials=true]
  * @param {string[]} [argv=process.argv]
  * @returns {z.infer<typeof configSchema>}
  */
 function loadConfig(requireCredentials = true, argv = process.argv) {
+  // Define o idioma antes de validar/logar para que --lang=en também traduza
+  // os erros de configuração e o resumo do dry-run.
+  const languageOverride = getLanguageOverride(argv);
+  setLanguage(
+    languageOverride || process.env.APP_LANGUAGE || process.env.BOT_LANGUAGE || LANG_PT_BR
+  );
   const notifyOverride = isNotify(argv);
   const heartbeatOverride = isHeartbeat(argv);
   const manualLoginOverride = isManualLogin(argv);
@@ -710,6 +796,7 @@ function loadConfig(requireCredentials = true, argv = process.argv) {
     MANUAL_LOGIN_TIMEOUT_MS: process.env.MANUAL_LOGIN_TIMEOUT_MS,
     MANUAL_LOGIN_CONTEXT: process.env.MANUAL_LOGIN_CONTEXT,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    APP_LANGUAGE: languageOverride || process.env.APP_LANGUAGE || process.env.BOT_LANGUAGE,
     NO_SANDBOX: process.env.NO_SANDBOX,
     NAV_TIMEOUT: process.env.NAV_TIMEOUT,
     NAV_TIMEOUT_SHORT: process.env.NAV_TIMEOUT_SHORT,
@@ -760,11 +847,16 @@ function loadConfig(requireCredentials = true, argv = process.argv) {
 
   if (!result.success) {
     const errorDetails = result.error.issues
-      .map((issue) => ` • ${issue.path.join('.')}: ${issue.message}`)
+      .map((issue) => ` • ${issue.path.join('.')}: ${translateConfigIssue(issue.message)}`)
       .join('\n');
 
     logger.error(
-      { issues: result.error.issues },
+      {
+        issues: result.error.issues.map((issue) => ({
+          ...issue,
+          message: translateConfigIssue(issue.message)
+        }))
+      },
       `Falha na validação do arquivo credentials.env:\n${errorDetails}`
     );
 
@@ -774,6 +866,7 @@ function loadConfig(requireCredentials = true, argv = process.argv) {
     );
   }
 
+  setLanguage(result.data.APP_LANGUAGE);
   logger.updateLogLevel(result.data.LOG_LEVEL);
   return result.data;
 }
@@ -1080,6 +1173,7 @@ async function handleDryRun() {
         allowMedia: cfg.ALLOW_MEDIA,
         headless: cfg.HEADLESS,
         logLevel: cfg.LOG_LEVEL,
+        language: cfg.APP_LANGUAGE,
         captchaCooldownHours: cfg.CAPTCHA_COOLDOWN_HOURS,
         noSandbox: cfg.NO_SANDBOX,
         navTimeout: cfg.NAV_TIMEOUT,
@@ -1136,6 +1230,7 @@ async function handleDryRun() {
         ` • Contexto do login manual (MANUAL_LOGIN_CONTEXT): ${cfg.MANUAL_LOGIN_CONTEXT}`
       );
       logger.info(` • Nível de Log: ${cfg.LOG_LEVEL}`);
+      logger.info(` • Idioma (APP_LANGUAGE): ${cfg.APP_LANGUAGE}`);
       logger.info(
         ` • Cooldown pós-captcha (CAPTCHA_COOLDOWN_HOURS): ${
           cfg.CAPTCHA_COOLDOWN_HOURS > 0 ? `${cfg.CAPTCHA_COOLDOWN_HOURS}h` : 'desligado'

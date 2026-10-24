@@ -4,6 +4,7 @@ const { maskUser } = require('../config');
 const { getCheckinCoinsFromStreak } = require('./ui/balance');
 const { validateExternalUrl, safeFetch } = require('./url_guard');
 const logger = require('../logger');
+const { t, isEnglish, translateValue } = require('./i18n');
 
 // Teto de payload enviado a webhooks externos (32 KB): protege memória e destinos.
 const WEBHOOK_MAX_PAYLOAD_BYTES = 32 * 1024;
@@ -702,6 +703,44 @@ async function performWebhookNotification(payload, customUrl = null) {
   }
 }
 
+// Campos de relatório que contêm texto de interface/status (não títulos/usuários).
+const REPORT_LOCALIZABLE_KEYS = new Set([
+  'status',
+  'error',
+  'message',
+  'finalBalance',
+  'totalBalance',
+  'finalCoins',
+  'coinsGainedToday',
+  'coins',
+  'estimatedCoins',
+  'checkinCoins',
+  'tasksCoins'
+]);
+
+/**
+ * Localiza valores textuais do payload JSON (status, saldos, erros) quando EN.
+ * Títulos de tarefas, e-mails e chaves estruturais são preservados.
+ * @param {object} payload
+ * @returns {object}
+ */
+function localizeReportPayload(payload) {
+  if (!isEnglish() || !payload || typeof payload !== 'object') return payload;
+  const clone = JSON.parse(JSON.stringify(payload));
+  const visit = (value) => {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      if (typeof child === 'string' && REPORT_LOCALIZABLE_KEYS.has(key)) {
+        value[key] = translateValue(child);
+      } else if (child && typeof child === 'object') {
+        visit(child);
+      }
+    }
+  };
+  visit(clone);
+  return clone;
+}
+
 /**
  * Envia o payload ao webhook, respeitando `options.skipWebhook` (usado pelos testes
  * para não disparar notificações reais de relatórios sintéticos).
@@ -710,7 +749,7 @@ async function performWebhookNotification(payload, customUrl = null) {
  */
 function maybeSendWebhook(payload, options = {}) {
   if (options.skipWebhook === true) return;
-  sendWebhookNotification(payload).catch(() => {});
+  sendWebhookNotification(localizeReportPayload(payload)).catch(() => {});
 }
 
 /**
@@ -726,7 +765,7 @@ function renderCheckinReport(checkinResult, options = {}) {
     // sequestrar a conta. O valor continua no RETORNO de runCheckin (uso interno).
     const { sessionData: _sessionData, ...safeCheckinResult } = checkinResult;
     const payload = { type: 'checkin', ...safeCheckinResult };
-    process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(localizeReportPayload(payload), null, 2) + '\n');
     // Mascara o e-mail antes de enviar a webhooks de terceiros (Discord/Telegram) — o stdout
     // local mantém o valor cru, que é o comportamento já esperado por quem consome --json.
     const webhookPayload = {
@@ -743,9 +782,11 @@ function renderCheckinReport(checkinResult, options = {}) {
   const hasLedgerCredit = checkinResult.checkinCoinsFromLedger === true && checkinGained > 0;
   const reportLine1 =
     checkinResult.alreadyCollected && !hasLedgerCredit
-      ? 'já estava coletado (+0 moedas)'
-      : `${checkinGained > 0 ? checkinGained : checkinResult.coinsGainedToday} moedas`;
-  const reportLine2 = `${checkinResult.totalBalance} moedas`;
+      ? t('já estava coletado (+0 moedas)')
+      : t('{value} moedas', {
+          value: checkinGained > 0 ? checkinGained : checkinResult.coinsGainedToday
+        });
+  const reportLine2 = t('{value} moedas', { value: checkinResult.totalBalance });
   const reportLine3 =
     checkinResult.streakDays !== 'N/D'
       ? `a sequência subiu (${checkinResult.streakDays} dias seguidos)`
@@ -784,7 +825,7 @@ function renderCheckinReport(checkinResult, options = {}) {
 function renderTasksReport(tasksResult, options = {}) {
   if (options.json) {
     const payload = { type: 'tasks', ...tasksResult };
-    process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(localizeReportPayload(payload), null, 2) + '\n');
     // Mascara o e-mail antes de enviar a webhooks de terceiros (mesma política do check-in);
     // o stdout local mantém o valor cru para quem consome --json.
     const webhookPayload = {
@@ -831,7 +872,7 @@ function renderUnifiedReport(checkinResult, tasksResult, meta = {}, options = {}
   const jsonOutput = buildUnifiedReportPayload(checkinResult, tasksResult, meta);
 
   if (options.json) {
-    process.stdout.write(JSON.stringify(jsonOutput, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(localizeReportPayload(jsonOutput), null, 2) + '\n');
     maybeSendWebhook(jsonOutput, options);
     return;
   }
@@ -1024,7 +1065,7 @@ function renderMultiAccountReport(accountResults = [], meta = {}, options = {}) 
   const jsonOutput = buildMultiAccountReportPayload(accountResults, meta);
 
   if (options.json) {
-    process.stdout.write(JSON.stringify(jsonOutput, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(localizeReportPayload(jsonOutput), null, 2) + '\n');
     maybeSendWebhook(jsonOutput, options);
     return;
   }

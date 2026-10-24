@@ -18,6 +18,7 @@ const { saveSession } = require('../session');
 const { gotoWithRetry } = require('./navigation');
 const { maskUser } = require('../../config');
 const logger = require('../../logger');
+const { t } = require('../i18n');
 
 const CHOICE_HEADLESS = 1;
 const CHOICE_MANUAL = 2;
@@ -131,16 +132,16 @@ function manualLoginReason({
   cooldown = null
 } = {}) {
   if (cooldown && cooldown.requireManualLogin === true) {
-    return 'login remoto suspenso após bloqueio anti-bot (RGV587)';
+    return t('login remoto suspenso após bloqueio anti-bot (RGV587)');
   }
   if (cooldown && cooldown.active === true) {
     return cooldown.riskControl === true
-      ? 'bloqueio anti-bot (RGV587) ativo'
-      : 'cooldown pós-captcha ativo';
+      ? t('bloqueio anti-bot (RGV587) ativo')
+      : t('cooldown pós-captcha ativo');
   }
-  if (hasValidLogin !== true) return 'sem sessão válida';
-  if (passwordVisible === true) return 'reautenticação solicitada pela página';
-  return 'login necessário';
+  if (hasValidLogin !== true) return t('sem sessão válida');
+  if (passwordVisible === true) return t('reautenticação solicitada pela página');
+  return t('login necessário');
 }
 
 /**
@@ -159,17 +160,19 @@ function buildLoginChoiceMenu({
   return [
     '',
     '──────────────────────────────────────────────',
-    '🔐 Login manual opcional',
-    user ? `Conta: ${user}` : null,
-    reason ? `Motivo: ${reason}` : null,
+    t('🔐 Login manual opcional'),
+    user ? t('Conta: {user}', { user }) : null,
+    reason ? t('Motivo: {reason}', { reason }) : null,
     riskLike
-      ? '⚠️ O bloqueio anti-bot pode impedir o login mesmo na janela; respeite o cooldown de 48h.'
+      ? t(
+          '⚠️ O bloqueio anti-bot pode impedir o login mesmo na janela; respeite o cooldown de 48h.'
+        )
       : null,
     '',
-    '  1) Continuar 100% headless (padrão)',
-    '  2) Abrir janela para login manual e salvar a sessão',
+    t('  1) Continuar 100% headless (padrão)'),
+    t('  2) Abrir janela para login manual e salvar a sessão'),
     '',
-    `Escolha [1/2] (Enter = 1, timeout ${seconds}s): `
+    t('Escolha [1/2] (Enter = 1, timeout {seconds}s): ', { seconds })
   ]
     .filter((line) => line !== null)
     .join('\n');
@@ -296,7 +299,7 @@ async function waitForManualLogin({
   now = () => Date.now()
 } = {}) {
   if (!context || typeof context.cookies !== 'function') {
-    throw new ManualLoginError('Contexto do navegador inválido para o login manual.');
+    throw new ManualLoginError(t('Contexto do navegador inválido para o login manual.'));
   }
 
   const maxTimeout = Math.max(0, Number(timeoutMs) || 0);
@@ -315,7 +318,7 @@ async function waitForManualLogin({
     }
   } catch (err) {
     throw new ManualLoginError(
-      `Não foi possível ler os cookies da janela de login: ${err.message}`
+      t('Não foi possível ler os cookies da janela de login: {err}', { err: err.message })
     );
   }
 
@@ -323,7 +326,9 @@ async function waitForManualLogin({
 
   for (;;) {
     if (page && typeof page.isClosed === 'function' && page.isClosed()) {
-      throw new ManualLoginError('A janela de login foi fechada antes de concluir a autenticação.');
+      throw new ManualLoginError(
+        t('A janela de login foi fechada antes de concluir a autenticação.')
+      );
     }
 
     let cookies = [];
@@ -331,7 +336,7 @@ async function waitForManualLogin({
       cookies = await context.cookies();
     } catch (err) {
       throw new ManualLoginError(
-        `Não foi possível ler os cookies da janela de login: ${err.message}`
+        t('Não foi possível ler os cookies da janela de login: {err}', { err: err.message })
       );
     }
 
@@ -367,7 +372,9 @@ async function waitForManualLogin({
     const remaining = deadline - now();
     if (remaining <= 0) {
       throw new ManualLoginTimeoutError(
-        `Tempo esgotado aguardando o login manual (${Math.round(maxTimeout / 1000)}s).`
+        t('Tempo esgotado aguardando o login manual ({seconds}s).', {
+          seconds: Math.round(maxTimeout / 1000)
+        })
       );
     }
     await sleep(Math.min(interval, remaining));
@@ -409,7 +416,7 @@ async function performManualLogin({
 
   const user = (account && account.user) || config.ALI_USER;
   if (!user) {
-    throw new ManualLoginError('Conta não identificada para o login manual.');
+    throw new ManualLoginError(t('Conta não identificada para o login manual.'));
   }
 
   const reuse = Boolean(existingPage && existingContext);
@@ -478,7 +485,9 @@ async function performManualLogin({
     const saved = await save(storage, user, { ...sessionOpts, freshLogin: true });
     if (!saved || !saved.sessionData) {
       throw new ManualLoginError(
-        'Login detectado, mas a sessão não pôde ser salva. Verifique SESSION_SECRET e as permissões do diretório.'
+        t(
+          'Login detectado, mas a sessão não pôde ser salva. Verifique SESSION_SECRET e as permissões do diretório.'
+        )
       );
     }
 

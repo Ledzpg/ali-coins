@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { z } = require('zod');
 const logger = require('./logger');
+const { t } = require('./libs/i18n');
 
 // Salt fixo legado para compatibilidade com tokens v1
 const APP_SCRYPT_SALT_V1 = Buffer.from('ali-coins-session-encryption-v1-scrypt-salt', 'utf-8');
@@ -858,9 +859,11 @@ class TwoFactorRequiredNonInteractive extends Error {
   constructor(message) {
     super(
       message ||
-        'Execução não-interativa detectada (sem TTY). O AliExpress solicitou verificação de código 2FA.\n' +
-          'Solução: Execute localmente em terminal interativo (./run_all.sh), resolva o desafio, ' +
-          'e use "node export_session.js" / "node import_session.js" para transferir a sessão autenticada para o servidor.'
+        t(
+          'Execução não-interativa detectada (sem TTY). O AliExpress solicitou verificação de código 2FA.\n' +
+            'Solução: Execute localmente em terminal interativo (./run_all.sh), resolva o desafio, ' +
+            'e use "node export_session.js" / "node import_session.js" para transferir a sessão autenticada para o servidor.'
+        )
     );
     this.name = 'TwoFactorRequiredNonInteractive';
     this.code = 'TWO_FACTOR_REQUIRED_NON_INTERACTIVE';
@@ -876,7 +879,7 @@ class TwoFactorRequiredNonInteractive extends Error {
  * @returns {Promise<string>}
  */
 function readMasked2FACode(
-  promptText = '>> Digite o código de 6 dígitos enviado para seu e-mail/SMS: ',
+  promptText = t('>> Digite o código de 6 dígitos enviado para seu e-mail/SMS: '),
   timeoutMs = 120000
 ) {
   return new Promise((resolve, reject) => {
@@ -907,7 +910,13 @@ function readMasked2FACode(
     timer = setTimeout(() => {
       cleanup();
       process.stdout.write('\n');
-      reject(new Error(`Tempo esgotado (${timeoutMs / 1000}s) aguardando o código 2FA.`));
+      reject(
+        new Error(
+          t('Tempo esgotado ({seconds}s) aguardando o código 2FA.', {
+            seconds: timeoutMs / 1000
+          })
+        )
+      );
     }, timeoutMs);
 
     const onData = (chunk) => {
