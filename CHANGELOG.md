@@ -11,6 +11,13 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 > a seção `## [X.Y.Z] - AAAA-MM-DD` no momento do release. O processo completo está em
 > [RELEASING.md](RELEASING.md).
 
+### Documentação
+
+- **Documentação completa em inglês e espanhol:** `README.en.md`/`README.es.md`,
+  `INSTALL_LINUX/INSTALL_WINDOWS/INSTALL_MACOS.en.md/.es.md` e
+  `CLOUD_SESSIONS.en.md/.es.md`, com seletor de idiomas no topo de cada documento e
+  links internos/âncoras preservados. O português continua sendo a fonte canônica.
+
 ## [2.1.1] - 2026-10-24
 
 ### Corrigido

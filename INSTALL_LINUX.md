@@ -1,5 +1,7 @@
 # Guia Detalhado de Instalação no Linux (Ubuntu 22.04 LTS / 24.04 LTS e Debian)
 
+> 🌐 **Idiomas:** [Português](INSTALL_LINUX.md) | [English](INSTALL_LINUX.en.md) | [Español](INSTALL_LINUX.es.md)
+
 Este manual foi criado para guiar passo a passo a instalação completa do **AliExpress Coin Collector & Task Runner** em qualquer ambiente Linux, cobrindo desde desktops até servidores em nuvem headless (como Oracle Cloud, AWS EC2, DigitalOcean, Google Cloud, etc.).
 
 ---

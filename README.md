@@ -1,5 +1,7 @@
 # AliExpress Coin Collector & Task Runner
 
+> 🌐 **Idiomas:** [Português](README.md) | [English](README.en.md) | [Español](README.es.md)
+
 Automação completa para **check-in diário de moedas** e **execução de tarefas ("Ganhe mais moedas")** do AliExpress com emulação mobile (Google Pixel 7 / Android) via Playwright.
 
 Compatível com **Linux (Ubuntu / Debian)**, **Windows 10/11** e **macOS (Apple Silicon & Intel)**.
